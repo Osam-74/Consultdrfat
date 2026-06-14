@@ -9,14 +9,16 @@ import {
 } from "./types";
 
 /* ───────────────────────── Settings ───────────────────────── */
-const settingsRef = doc(db, "settings", "practice");
+// NOTE: do NOT evaluate doc(db, ...) at module level — db is a stub during SSR.
+// All references to db are inside async functions that only run in the browser.
 
 export async function getSettings(): Promise<PracticeSettings> {
-  const snap = await getDoc(settingsRef);
+  const ref = doc(db, "settings", "practice");
+  const snap = await getDoc(ref);
   return snap.exists() ? (snap.data() as PracticeSettings) : DEFAULT_SETTINGS;
 }
 export async function saveSettings(s: PracticeSettings) {
-  await setDoc(settingsRef, s, { merge: true });
+  await setDoc(doc(db, "settings", "practice"), s, { merge: true });
 }
 
 /* ─────────────────────── Availability ──────────────────────── */
@@ -47,7 +49,6 @@ export async function deleteException(id: string) {
 }
 
 /* ───────────────────────── Bookings ────────────────────────── */
-/** Future paid/held bookings — their start times are unavailable. */
 export async function getActiveBookings(): Promise<Booking[]> {
   const q = query(
     collection(db, "bookings"),
@@ -110,7 +111,6 @@ export async function setNextClient(bookingId: string, label: string | null) {
 export async function setOffer(bookingId: string, offer: Offer | null) {
   await updateDoc(sessionRef(bookingId), { offer, updatedAt: serverTimestamp() });
 }
-/** Practitioner confirms (after Paystack clears) → extend the authoritative end time. */
 export async function confirmExtension(bookingId: string, current: SessionDoc) {
   if (!current.offer) return;
   const base = current.endAt && current.endAt.toMillis() > Date.now()
