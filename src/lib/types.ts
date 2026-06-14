@@ -1,0 +1,81 @@
+import { Timestamp } from "firebase/firestore";
+
+export type Role = "practitioner" | "client";
+
+export interface PracticeSettings {
+  practitionerName: string;
+  currency: "NGN";
+  priceNGN: number; // price per standard session, in Naira
+  sessionLengthMin: number; // default 30
+  bufferMin: number; // gap between sessions
+  bookingWindowDays: number; // hard limit, default 14
+  timezone: string; // e.g. "Africa/Lagos"
+}
+
+export const DEFAULT_SETTINGS: PracticeSettings = {
+  practitionerName: "Dr. Imani Reyes",
+  currency: "NGN",
+  priceNGN: 15000,
+  sessionLengthMin: 30,
+  bufferMin: 10,
+  bookingWindowDays: 14,
+  timezone: "Africa/Lagos",
+};
+
+// Extra-time blocks offered mid-session, priced pro-rata (₦ per minute ≈ price/length).
+export const EXTENSION_MINUTES = [15, 30] as const;
+
+export interface AvailabilityTemplate {
+  id: string;
+  weekday: number; // 0 = Sunday … 6 = Saturday
+  start: string; // "09:00"
+  end: string; // "13:00"
+  active: boolean;
+}
+
+export interface AvailabilityException {
+  id: string;
+  date: string; // "2026-06-20"
+  type: "block" | "extra";
+  start?: string;
+  end?: string;
+}
+
+export type BookingStatus = "held" | "paid" | "cancelled";
+
+export interface Booking {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientEmail: string;
+  slotStart: Timestamp;
+  slotEnd: Timestamp;
+  status: BookingStatus;
+  topic?: string;
+  amountNGN: number;
+  paystackRef?: string;
+  createdAt: Timestamp;
+}
+
+export interface Offer {
+  minutes: number;
+  priceNGN: number;
+  status: "sent" | "accepted" | "confirmed" | "declined";
+  paystackRef?: string;
+}
+
+export interface SessionDoc {
+  status: "idle" | "live" | "complete";
+  endAt: Timestamp | null; // authoritative end time
+  durationMin: number;
+  offer: Offer | null;
+  nextClientAt: string | null; // human label of next booking, for the queue guard
+  updatedAt: Timestamp;
+}
+
+export interface Message {
+  id: string;
+  from: Role | "system";
+  text: string;
+  t: number;
+}
