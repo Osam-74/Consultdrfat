@@ -27,19 +27,24 @@ jobs:
       - name: Build
         env:
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: consultdrfat.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: consultdrfat
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: consultdrfat.firebasestorage.app
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "101708230797"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:101708230797:web:698b771ef26868be5f32c4"
           NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY }}
           NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
           NEXT_PUBLIC_PRACTITIONER_UID: ${{ secrets.NEXT_PUBLIC_PRACTITIONER_UID }}
         run: npm run build
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy out --project-name=consultdrfat --branch=main
+          name: out
+          path: out/
+          retention-days: 1
+
+      # NOTE: Cloudflare Pages deployment is handled via direct Git integration.
+      # Go to dash.cloudflare.com → Workers & Pages → your project → Settings → Builds & deployments
+      # Connect to GitHub → pick this repo → build cmd: npm run build → output dir: out
+      # Add env vars there (NEXT_PUBLIC_FIREBASE_API_KEY etc.) — no API token needed.
