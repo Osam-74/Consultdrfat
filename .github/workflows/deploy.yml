@@ -9,7 +9,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Build & Deploy
+    name: Build & Deploy to Cloudflare Pages
 
     steps:
       - name: Checkout
@@ -22,9 +22,15 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
-      - name: Build
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # This runs: opennextjs-cloudflare build && opennextjs-cloudflare deploy
+          command: pages deploy
         env:
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: consultdrfat.firebaseapp.com
@@ -35,16 +41,9 @@ jobs:
           NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY }}
           NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
           NEXT_PUBLIC_PRACTITIONER_UID: ${{ secrets.NEXT_PUBLIC_PRACTITIONER_UID }}
-        run: npm run build
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: out
-          path: out/
-          retention-days: 1
-
-      # NOTE: Cloudflare Pages deployment is handled via direct Git integration.
-      # Go to dash.cloudflare.com → Workers & Pages → your project → Settings → Builds & deployments
-      # Connect to GitHub → pick this repo → build cmd: npm run build → output dir: out
-      # Add env vars there (NEXT_PUBLIC_FIREBASE_API_KEY etc.) — no API token needed.
+      # NOTE: Cloudflare Pages deployment is ALSO handled via direct Git integration.
+      # Go to dash.cloudflare.com → Workers & Pages → your project → Settings → Builds
+      # Connect GitHub → Build command: npm run deploy → Output directory: .open-next
+      # Add env vars (NEXT_PUBLIC_*) in Pages project settings.
+      # That is the RECOMMENDED approach — no GitHub secrets needed for Cloudflare.
