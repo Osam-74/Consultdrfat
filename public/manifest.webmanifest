@@ -1,11 +1,11 @@
 {
-  "name": "MindBridge — Online Sessions",
-  "short_name": "MindBridge",
-  "description": "Secure online psychology sessions.",
+  "name": "ConsultDrFat — Medical Consultations",
+  "short_name": "ConsultDrFat",
+  "description": "Book private, secure medical consultations with Dr. Fat. Pay in naira, join by voice or chat.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0A3B37",
-  "theme_color": "#0E4F4A",
+  "background_color": "#0B2B4A",
+  "theme_color": "#0B2B4A",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

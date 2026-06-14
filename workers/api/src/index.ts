@@ -1,5 +1,5 @@
 /**
- * MindBridge API — Cloudflare Worker
+ * ConsultDrFat API — Cloudflare Worker
  *
  * Three endpoints, all the server-side trust the PWA needs:
  *   GET  /verify?reference=...  → confirm a Paystack transaction succeeded (NGN)

@@ -13,7 +13,7 @@ export interface PracticeSettings {
 }
 
 export const DEFAULT_SETTINGS: PracticeSettings = {
-  practitionerName: "Dr. Imani Reyes",
+  practitionerName: "Dr. Fat",
   currency: "NGN",
   priceNGN: 15000,
   sessionLengthMin: 30,

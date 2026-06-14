@@ -10,7 +10,6 @@ export default function SessionPage() {
   const { user, role: authRole, loading, signIn } = useAuth();
   const [params, setParams] = useState<{ id: string; role: Role } | null>(null);
 
-  // Read query params on the client (keeps the page statically exportable).
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const id = q.get("id") || "";
@@ -18,21 +17,46 @@ export default function SessionPage() {
     setParams(id ? { id, role } : null);
   }, []);
 
-  if (loading || !params) return <div className="center"><p>Loading session…</p></div>;
+  if (loading || !params) return (
+    <div className="center" style={{ minHeight: "100vh" }}>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>🩺</div>
+      <p style={{ color: "var(--muted)" }}>Loading your session room…</p>
+    </div>
+  );
 
   if (!user) {
     return (
-      <div className="center">
-        <h2>Sign in to join your session</h2>
-        <button className="btn btn-amber" onClick={() => signIn()}>Continue with Google</button>
+      <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
+        <div className="wrap">
+          <nav className="nav">
+            <div className="brand">
+              <div className="brand-icon">🩺</div>
+              <div className="brand-text"><span>ConsultDrFat</span><small>Session Room</small></div>
+            </div>
+          </nav>
+        </div>
+        <div className="center" style={{ minHeight: "70vh" }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>🔒</div>
+          <h2>Sign in to join your session</h2>
+          <p>Sign in with the Google account you used to book your consultation.</p>
+          <button className="btn btn-primary btn-lg" onClick={() => signIn()}>
+            🔒 Continue with Google
+          </button>
+        </div>
       </div>
     );
   }
 
-  // The signed-in account decides the true role; the query param is a hint only.
   const role: Role = authRole ?? params.role;
   if (!params.id) {
-    return <div className="center"><h2>Session not found</h2><Link className="btn btn-amber" href="/">Home</Link></div>;
+    return (
+      <div className="center" style={{ minHeight: "100vh" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>❌</div>
+        <h2>Session Not Found</h2>
+        <p>This session link may be invalid or expired.</p>
+        <Link className="btn btn-primary" href="/">← Back to Home</Link>
+      </div>
+    );
   }
 
   return <SessionRoom bookingId={params.id} role={role} />;

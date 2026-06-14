@@ -111,7 +111,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     <div className="room-bg">
       <audio ref={remoteAudioRef} autoPlay playsInline hidden />
       <div className="room-top">
-        <div className="brand"><span className="m">M</span>MindBridge</div>
+        <div className="brand"><div className="brand-icon" style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,var(--teal),var(--sky))",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14}}>🩺</div><span style={{color:"#fff",fontWeight:700,fontSize:16}}>ConsultDrFat</span></div>
         <div className="tag">Live session · {role}</div>
       </div>
 

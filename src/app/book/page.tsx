@@ -25,6 +25,7 @@ export default function BookPage() {
   const [selDay, setSelDay] = useState<string | null>(null);
   const [selSlot, setSelSlot] = useState<Slot | null>(null);
   const [topic, setTopic] = useState("");
+  const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState<"idle" | "paying" | "booked">("idle");
   const [bookingId, setBookingId] = useState<string | null>(null);
 
@@ -40,7 +41,6 @@ export default function BookPage() {
 
   const byDay = useMemo(() => groupByDay(slots), [slots]);
 
-  // 21-cell grid starting on the Sunday of this week
   const cells = useMemo(() => {
     const now = new Date(); now.setHours(0,0,0,0);
     const start = new Date(now); start.setDate(now.getDate() - now.getDay());
@@ -51,15 +51,42 @@ export default function BookPage() {
     });
   }, [settings.bookingWindowDays]);
 
-  if (loading || !ready) return <div className="center"><p>Loading…</p></div>;
+  if (loading || !ready) return (
+    <div className="center">
+      <div style={{ fontSize: 40, marginBottom: 12 }}>🩺</div>
+      <p style={{ color: "var(--muted)" }}>Loading available slots…</p>
+    </div>
+  );
 
   if (!user) {
     return (
-      <div className="center">
-        <h2>Sign in to book</h2>
-        <p>We use your Google account to secure your session and send confirmations.</p>
-        <button className="btn btn-amber" onClick={() => signIn()}>Continue with Google</button>
-        <p style={{ marginTop: 18 }}><Link href="/">← Back</Link></p>
+      <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
+        <div className="wrap">
+          <nav className="nav">
+            <div className="brand">
+              <div className="brand-icon">🩺</div>
+              <div className="brand-text">
+                <span>ConsultDrFat</span>
+                <small>Medical Consultations</small>
+              </div>
+            </div>
+            <Link href="/" className="btn btn-ghost btn-sm">← Home</Link>
+          </nav>
+        </div>
+        <div className="center" style={{ minHeight: "70vh" }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>👨‍⚕️</div>
+          <h2>Sign in to book your consultation</h2>
+          <p>
+            We use your Google account to keep your session secure and send 
+            your confirmation. Your medical details stay private.
+          </p>
+          <button className="btn btn-primary btn-lg" onClick={() => signIn()}>
+            🔒 Continue with Google
+          </button>
+          <p style={{ marginTop: 16, fontSize: 12, color: "var(--muted-2)" }}>
+            By continuing you agree to our privacy policy.
+          </p>
+        </div>
       </div>
     );
   }
@@ -67,7 +94,7 @@ export default function BookPage() {
   const daySlots = selDay ? byDay.get(selDay) ?? [] : [];
 
   const pay = () => {
-    if (!selSlot || !user) return;
+    if (!selSlot || !user || !consent) return;
     setStatus("paying");
     createBooking({
       clientId: user.uid,
@@ -85,7 +112,6 @@ export default function BookPage() {
         amountNGN: settings.priceNGN,
         metadata: { bookingId: id, kind: "session" },
         onSuccess: async (ref) => {
-          // Verify server-side before trusting payment.
           try { if (API_BASE) await fetch(`${API_BASE}/verify?reference=${ref}`); } catch {}
           await markBookingPaid(id, ref);
           setStatus("booked");
@@ -97,77 +123,185 @@ export default function BookPage() {
 
   if (status === "booked" && bookingId) {
     return (
-      <div className="center">
-        <h2>You’re booked 🎉</h2>
+      <div className="center" style={{ minHeight: "100vh" }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+        <h2 style={{ color: "var(--teal)" }}>Consultation Confirmed!</h2>
         <p>
-          {selSlot && `${DOW[selSlot.start.getDay()]} ${selSlot.start.getDate()} ${MON[selSlot.start.getMonth()]} · ${selSlot.start.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`}
-          . We’ll send a reminder before your session.
+          {selSlot && (
+            <>
+              <strong>
+                {DOW[selSlot.start.getDay()]}, {selSlot.start.getDate()} {MON[selSlot.start.getMonth()]} — {selSlot.start.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
+              </strong>
+              <br />
+            </>
+          )}
+          A confirmation email is on its way. You can join the room at the time of your appointment.
         </p>
-        <Link className="btn btn-amber" href={`/session/?id=${bookingId}&role=client`}>Go to my session room</Link>
-        <p style={{ marginTop: 18 }}><Link href="/">← Home</Link></p>
+        <Link className="btn btn-primary btn-lg" href={`/session/?id=${bookingId}&role=client`}>
+          🩺 Go to My Session Room
+        </Link>
+        <p style={{ marginTop: 16 }}><Link href="/" style={{ color: "var(--teal)", fontSize: 14 }}>← Back to Home</Link></p>
       </div>
     );
   }
 
   return (
-    <div className="wrap">
-      <div className="top">
-        <div className="brand"><span className="m">M</span>MindBridge</div>
-        <Link href="/" className="btn btn-ghost" style={{ padding: "8px 16px" }}>Home</Link>
-      </div>
-      <div className="page-head">
-        <div className="lbl">Book a session</div>
-        <h2>Choose a time that suits you.</h2>
-        <p>Open times for the next {settings.bookingWindowDays} days. Anything further out opens up as the days roll forward.</p>
-      </div>
+    <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
+      <div className="wrap">
+        <nav className="nav">
+          <div className="brand">
+            <div className="brand-icon">🩺</div>
+            <div className="brand-text">
+              <span>ConsultDrFat</span>
+              <small>Medical Consultations</small>
+            </div>
+          </div>
+          <Link href="/" className="btn btn-ghost btn-sm">← Home</Link>
+        </nav>
 
-      <div className="book-grid">
-        <div className="panel">
-          <div className="panel-head">
-            <h3>Next two weeks</h3>
-            <span className="windownote">Booking window · {settings.bookingWindowDays} days</span>
-          </div>
-          <div className="cal">
-            {DOW.map((d) => <div key={d} className="dow">{d}</div>)}
-            {cells.map((c) => {
-              if (c.past) return <div key={c.key} className="day empty" />;
-              if (c.beyond) return <div key={c.key} className="day locked"><span className="mon">{MON[c.date.getMonth()]}</span>{c.date.getDate()}🔒</div>;
-              const has = byDay.has(c.key);
-              const cls = "day" + (has ? " has" : " none") + (selDay === c.key ? " sel" : "");
-              return (
-                <div key={c.key} className={cls} onClick={() => has && (setSelDay(c.key), setSelSlot(null))}>
-                  <span className="mon">{MON[c.date.getMonth()]}</span>{c.date.getDate()}
-                </div>
-              );
-            })}
-          </div>
-          <div className="muted-h">{selDay ? `Times for ${selDay}` : "Select a day to see times"}</div>
-          <div className="slots">
-            {daySlots.map((s) => {
-              const t = s.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-              const sel = selSlot?.start.getTime() === s.start.getTime();
-              return <div key={s.start.getTime()} className={"slot" + (sel ? " sel" : "")} onClick={() => setSelSlot(s)}>{t}</div>;
-            })}
-            {selDay && daySlots.length === 0 && <p style={{ color: "var(--muted)", fontSize: 14 }}>No open times this day.</p>}
-          </div>
+        <div className="page-head">
+          <div className="lbl">🗓 Book a Consultation</div>
+          <h2>Choose a time that works for you.</h2>
+          <p>
+            Available slots for the next {settings.bookingWindowDays} days — sessions available Mon–Sat. 
+            Select a day, pick a time, and confirm your booking below.
+          </p>
         </div>
 
-        <div className="panel">
-          <h3>Your session</h3>
-          <p style={{ fontSize: 13.5, color: "var(--muted)", margin: "4px 0 16px" }}>Review and confirm.</p>
-          <div className="sumline"><span className="ic">◷</span>
-            <span style={{ color: selSlot ? "var(--ink)" : "var(--muted)" }}>
-              {selSlot ? `${DOW[selSlot.start.getDay()]} ${selSlot.start.getDate()} ${MON[selSlot.start.getMonth()]} · ${selSlot.start.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}` : "No time selected yet"}
-            </span>
+        <div className="book-grid">
+          {/* Calendar */}
+          <div className="panel">
+            <div className="panel-head">
+              <h3>📅 Available Days</h3>
+              <span className="windownote">Next {settings.bookingWindowDays} days</span>
+            </div>
+            <div className="cal">
+              {DOW.map((d) => <div key={d} className="dow">{d}</div>)}
+              {cells.map((c) => {
+                if (c.past) return <div key={c.key} className="day empty" />;
+                if (c.beyond) return (
+                  <div key={c.key} className="day locked">
+                    <span className="mon">{MON[c.date.getMonth()]}</span>
+                    {c.date.getDate()}
+                    <span style={{ fontSize: 8 }}>🔒</span>
+                  </div>
+                );
+                const has = byDay.has(c.key);
+                const cls = "day" + (has ? " has" : " none") + (selDay === c.key ? " sel" : "");
+                return (
+                  <div key={c.key} className={cls} onClick={() => has && (setSelDay(c.key), setSelSlot(null))}>
+                    <span className="mon">{MON[c.date.getMonth()]}</span>
+                    {c.date.getDate()}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="muted-h">
+              {selDay ? `⏰ Available times — ${selDay}` : "Select a date to see times"}
+            </div>
+            <div className="slots">
+              {daySlots.map((s) => {
+                const t = s.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                const sel = selSlot?.start.getTime() === s.start.getTime();
+                return (
+                  <div key={s.start.getTime()} className={"slot" + (sel ? " sel" : "")} onClick={() => setSelSlot(s)}>
+                    {t}
+                  </div>
+                );
+              })}
+              {selDay && daySlots.length === 0 && (
+                <p style={{ color: "var(--muted)", fontSize: 13.5, gridColumn: "1 / -1" }}>
+                  No open slots this day.
+                </p>
+              )}
+            </div>
           </div>
-          <div className="sumline"><span className="ic">◐</span><span>{settings.sessionLengthMin}-minute session · voice or chat</span></div>
-          <label className="lab" htmlFor="topic">What would you like to talk about? (optional)</label>
-          <textarea id="topic" rows={3} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="One or two things on your mind…" />
-          <div className="price-row"><span style={{ fontSize: 14, color: "var(--muted)" }}>Session fee</span><span className="price">{ngn(settings.priceNGN)}</span></div>
-          <button className="btn btn-amber" style={{ width: "100%", marginTop: 14 }} disabled={!selSlot || status === "paying"} onClick={pay}>
-            {status === "paying" ? "Opening secure checkout…" : selSlot ? `Pay ${ngn(settings.priceNGN)} & confirm` : "Select a time to continue"}
-          </button>
-          <div className="fine">Card · bank transfer · OPay · PalmPay — via Paystack. Free cancellation up to 24h before.</div>
+
+          {/* Summary */}
+          <div className="panel">
+            <div className="panel-head">
+              <h3>🩺 Your Consultation</h3>
+            </div>
+
+            {/* Doctor card */}
+            <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--line)", marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--teal-soft)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
+                👨‍⚕️
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14.5, color: "var(--navy)" }}>Dr. Fat</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>General Practitioner · MDCN Registered</div>
+              </div>
+            </div>
+
+            <div className="sumline">
+              <span className="ic">🗓</span>
+              <span style={{ color: selSlot ? "var(--ink)" : "var(--muted)" }}>
+                {selSlot
+                  ? `${DOW[selSlot.start.getDay()]}, ${selSlot.start.getDate()} ${MON[selSlot.start.getMonth()]} · ${selSlot.start.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`
+                  : "No time selected yet"}
+              </span>
+            </div>
+            <div className="sumline">
+              <span className="ic">⏱</span>
+              <span>{settings.sessionLengthMin}-minute consultation · voice + chat</span>
+            </div>
+            <div className="sumline">
+              <span className="ic">🔒</span>
+              <span>Private & encrypted session</span>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label htmlFor="topic">
+                What is your main concern? <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional)</span>
+              </label>
+              <textarea
+                id="topic"
+                rows={3}
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="E.g. persistent cough for 2 weeks, recurring headaches, high blood pressure reading…"
+              />
+            </div>
+
+            {/* Consent */}
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, padding: "10px 12px", background: "var(--teal-pale)", borderRadius: 10, border: "1px solid var(--line)" }}>
+              <input
+                type="checkbox"
+                id="consent"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                style={{ marginTop: 2, width: "auto", accentColor: "var(--teal)" }}
+              />
+              <label htmlFor="consent" style={{ fontSize: 12.5, color: "var(--muted)", cursor: "pointer", fontWeight: 400, margin: 0 }}>
+                I consent to sharing my health information with Dr. Fat for the purpose of this medical consultation.
+              </label>
+            </div>
+
+            <div className="price-row">
+              <span style={{ fontSize: 14, color: "var(--muted)" }}>Consultation fee</span>
+              <span className="price">{ngn(settings.priceNGN)}</span>
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ width: "100%", marginTop: 14 }}
+              disabled={!selSlot || !consent || status === "paying"}
+              onClick={pay}
+            >
+              {status === "paying"
+                ? "⏳ Opening secure checkout…"
+                : selSlot && consent
+                  ? `💳 Pay ${ngn(settings.priceNGN)} & Confirm`
+                  : !selSlot
+                    ? "Select a time to continue"
+                    : "Please accept consent above"}
+            </button>
+            <div className="fine">
+              💳 Card · Bank Transfer · OPay · PalmPay via Paystack<br/>
+              Free cancellation up to 24 hours before your session.
+            </div>
+          </div>
         </div>
       </div>
     </div>

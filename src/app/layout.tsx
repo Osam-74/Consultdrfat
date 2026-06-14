@@ -4,14 +4,14 @@ import { AuthProvider } from "@/lib/auth";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
-  title: "MindBridge — Online Sessions",
-  description: "Secure online psychology sessions with a shared, server-driven countdown.",
+  title: "ConsultDrFat — Expert Medical Consultations",
+  description: "Book private, secure medical consultations with Dr. Fat. Voice & chat sessions, confirmed slots, pay in naira.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "MindBridge" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "ConsultDrFat" },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0E4F4A",
+  themeColor: "#0B2B4A",
   width: "device-width",
   initialScale: 1,
 };
@@ -19,6 +19,14 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Lora:ital,wght@0,400;0,600;1,400&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body>
         <AuthProvider>{children}</AuthProvider>
         <ServiceWorkerRegister />
