@@ -6,6 +6,7 @@ import {
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
 } from "@/lib/db";
 import { startVoice, VoiceHandle } from "@/lib/webrtc";
+import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
 import { SessionDoc, Message, Role, EXTENSION_MINUTES, DEFAULT_SETTINGS } from "@/lib/types";
 
@@ -18,6 +19,7 @@ function fmt(ms: number) {
 
 export default function SessionRoom({ bookingId, role }: { bookingId: string; role: Role }) {
   const isPract = role === "practitioner";
+  const { user } = useAuth();
   const [session, setSession] = useState<SessionDoc | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [now, setNow] = useState(Date.now());
@@ -101,7 +103,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const acceptOffer = () => {
     if (!offer) return;
     payNGN({
-      email: "", amountNGN: offer.priceNGN, metadata: { bookingId, kind: "extension", minutes: offer.minutes },
+      email: user?.email ?? "", amountNGN: offer.priceNGN, metadata: { bookingId, kind: "extension", minutes: offer.minutes },
       onSuccess: (ref) => setOffer(bookingId, { ...offer, status: "accepted", paystackRef: ref }),
       onCancel: () => {},
     });
