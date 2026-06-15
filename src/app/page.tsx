@@ -16,7 +16,7 @@ export default function Home() {
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <Link href="/book/" className="btn btn-primary btn-sm">Book Now</Link>
-              <Link href="/admin/" className="btn btn-ghost-white btn-sm">Practitioner</Link>
+              <Link href="/admin-portal/" className="btn btn-ghost-white btn-sm">Practitioner</Link>
             </div>
           </nav>
 
@@ -150,6 +150,92 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── MEET DR. FAT ── */}
+      <section className="section" id="meet" style={{ paddingTop: 0 }}>
+        <div className="wrap">
+          <div className="section-head">
+            <div className="section-label">Meet Your Doctor</div>
+            <h2>The person you&apos;ll be speaking with.</h2>
+            <p>
+              You deserve to know who you&apos;re trusting with your health. Meet Dr. Fat — 
+              qualified, experienced, and genuinely committed to your wellbeing.
+            </p>
+          </div>
+          <div className="doctor-section">
+            <div className="doctor-inner">
+              {/* Left — Photo column */}
+              <div className="doctor-photo-col">
+                <div className="doctor-avatar-ring">👨‍⚕️</div>
+                <div className="doctor-name-tag">
+                  <h3>Dr. Fat</h3>
+                  <p>MBBS · MDCN Registered</p>
+                </div>
+                <div className="doctor-badge-strip">
+                  <span>🏥 General Practice</span>
+                  <span>🧠 Mental Wellness</span>
+                  <span>💊 Chronic Care</span>
+                  <span>🌿 Preventive Medicine</span>
+                </div>
+              </div>
+              {/* Right — Info column */}
+              <div className="doctor-info-col">
+                <div className="section-label" style={{ marginBottom: 8 }}>About Dr. Fat</div>
+                <h2 style={{ marginBottom: 16 }}>Compassionate care, backed by expertise.</h2>
+                <p className="bio">
+                  Dr. Fat is a qualified medical doctor registered with the Medical and Dental 
+                  Council of Nigeria (MDCN), with over 8 years of clinical experience spanning 
+                  general practice, telemedicine, and chronic disease management. Having worked 
+                  in both private and public healthcare settings across Nigeria, Dr. Fat brings 
+                  a deep understanding of the health challenges Nigerians face every day — and 
+                  the practical, compassionate approach to care they deserve.
+                </p>
+                <p className="bio" style={{ marginBottom: 0 }}>
+                  ConsultDrFat was built on a simple belief: quality medical attention should 
+                  not require a 2-hour wait or a costly clinic visit. Every patient deserves 
+                  focused, unhurried time with their doctor — from wherever they are.
+                </p>
+                <div className="doctor-credentials" style={{ marginTop: 24 }}>
+                  <div className="credential-item">
+                    <div className="cred-icon">🎓</div>
+                    <div>
+                      <h5>MBBS (Medicine & Surgery)</h5>
+                      <p>University of Lagos · 2014</p>
+                    </div>
+                  </div>
+                  <div className="credential-item">
+                    <div className="cred-icon">🏥</div>
+                    <div>
+                      <h5>MDCN Registered Practitioner</h5>
+                      <p>Medical & Dental Council of Nigeria</p>
+                    </div>
+                  </div>
+                  <div className="credential-item">
+                    <div className="cred-icon">📋</div>
+                    <div>
+                      <h5>General & Family Medicine</h5>
+                      <p>Primary care, chronic disease, preventive health</p>
+                    </div>
+                  </div>
+                  <div className="credential-item">
+                    <div className="cred-icon">💻</div>
+                    <div>
+                      <h5>Telemedicine Specialist</h5>
+                      <p>4+ years of digital-first patient care in Nigeria</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="doctor-stats-row">
+                  <div className="doc-stat"><div className="val">8+</div><div className="lbl">Years clinical experience</div></div>
+                  <div className="doc-stat"><div className="val">500+</div><div className="lbl">Patients consulted</div></div>
+                  <div className="doc-stat"><div className="val">4.9★</div><div className="lbl">Patient satisfaction</div></div>
+                  <div className="doc-stat"><div className="val">6 days</div><div className="lbl">Available per week</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── WHY CONSULT DR. FAT ── */}
       <section className="section" style={{ background: "var(--teal-pale)", marginTop: 0 }}>
         <div className="wrap">
@@ -165,7 +251,7 @@ export default function Home() {
             <div className="feature-card">
               <div className="feature-icon-box fi-teal">🔐</div>
               <div>
-                <h4>Fully Private & Confidential</h4>
+                <h4>Fully Private &amp; Confidential</h4>
                 <p>
                   All sessions are encrypted end-to-end. Your health information 
                   stays between you and Dr. Fat — never shared, never stored 
@@ -176,7 +262,7 @@ export default function Home() {
             <div className="feature-card">
               <div className="feature-icon-box fi-sky">🩺</div>
               <div>
-                <h4>Qualified & Experienced Doctor</h4>
+                <h4>Qualified &amp; Experienced Doctor</h4>
                 <p>
                   Dr. Fat is a fully registered medical practitioner with over 8 years 
                   of clinical experience — general practice, chronic disease management, 
@@ -211,7 +297,7 @@ export default function Home() {
                 <h4>Voice + Chat in One Room</h4>
                 <p>
                   Speak directly with Dr. Fat by voice, or use the live chat if 
-                  voice isn't convenient. Both sides see the same shared countdown 
+                  voice isn&apos;t convenient. Both sides see the same shared countdown 
                   so time is never wasted.
                 </p>
               </div>
@@ -219,7 +305,7 @@ export default function Home() {
             <div className="feature-card">
               <div className="feature-icon-box fi-sky">📋</div>
               <div>
-                <h4>Digital Notes & Referrals</h4>
+                <h4>Digital Notes &amp; Referrals</h4>
                 <p>
                   After your session, receive a typed summary of your consultation — 
                   recommendations, prescriptions, or referrals as needed, sent 
@@ -232,17 +318,17 @@ export default function Home() {
       </section>
 
       {/* ── CONDITIONS WE CONSULT ── */}
-      <section className="section">
+      <section className="section" id="areas">
         <div className="wrap">
           <div className="section-head">
             <div className="section-label">Areas of Practice</div>
             <h2>Conditions we can help with.</h2>
             <p>
-              Whether it's a nagging concern or an urgent question — Dr. Fat 
+              Whether it&apos;s a nagging concern or an urgent question — Dr. Fat 
               handles a broad range of everyday medical needs.
             </p>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          <div className="conditions-grid">
             {[
               { icon: "🤒", title: "Fever & Infections", desc: "Malaria, typhoid, chest infections, UTIs and general illness" },
               { icon: "💊", title: "Chronic Conditions", desc: "Diabetes, hypertension, asthma — monitoring & management" },
@@ -254,7 +340,7 @@ export default function Home() {
               <div className="card" key={c.title} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                 <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{c.icon}</div>
                 <div>
-                  <h4 style={{ fontSize: 15, marginBottom: 5, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{c.title}</h4>
+                  <h4 style={{ fontSize: 15, marginBottom: 5, fontFamily: "var(--font-pjs), sans-serif" }}>{c.title}</h4>
                   <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.55 }}>{c.desc}</p>
                 </div>
               </div>
@@ -300,13 +386,13 @@ export default function Home() {
               <h5>Sessions</h5>
               <a href="/book/">Book a Consultation</a>
               <a href="/#how">How It Works</a>
+              <a href="/#meet">Meet Dr. Fat</a>
               <a href="/#areas">Areas of Practice</a>
             </div>
             <div className="footer-col">
               <h5>Legal</h5>
               <a href="/privacy/">Privacy Policy</a>
               <a href="/terms/">Terms of Service</a>
-              <a href="/admin/">Practitioner Login</a>
             </div>
           </div>
           <div className="footer-bottom">
