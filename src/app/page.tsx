@@ -6,17 +6,17 @@ export default function Home() {
       {/* ── HERO ── */}
       <section className="hero">
         <div className="wrap">
+          {/* Nav — practitioner link is intentionally removed from public view */}
           <nav className="nav">
-            <div className="brand">
+            <Link href="/" className="brand">
               <div className="brand-icon">🩺</div>
               <div className="brand-text">
-                <span>ConsultDrFat</span>
-                <small>Medical Consultations</small>
+                <span style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>ConsultDrFat</span>
+                <small style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.55)", letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 2, display: "block" }}>Medical Consultations</small>
               </div>
-            </div>
+            </Link>
             <div style={{ display: "flex", gap: 10 }}>
               <Link href="/book/" className="btn btn-primary btn-sm">Book Now</Link>
-              <Link href="/admin-portal/" className="btn btn-ghost-white btn-sm">Practitioner</Link>
             </div>
           </nav>
 
@@ -33,7 +33,7 @@ export default function Home() {
               <p>
                 Book a private one-on-one medical consultation with Dr. Fat — a qualified, 
                 experienced physician. Get professional advice, prescriptions, and follow-up 
-                care in a secure, confidential session. Pay in naira. No queues.
+                care. Pay in naira. No queues.
               </p>
               <div className="hero-btns">
                 <Link href="/book/" className="btn btn-primary btn-lg">
@@ -54,7 +54,7 @@ export default function Home() {
                 </span>
                 <span className="hero-trust-item">
                   <span className="hero-trust-icon">⏱</span>
-                  30-min focused sessions
+                  30-min sessions
                 </span>
                 <span className="hero-trust-item">
                   <span className="hero-trust-icon">🏥</span>
@@ -86,7 +86,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="hero-card-slots">
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)", marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <div style={{ fontSize: 10.5, color: "rgba(255,255,255,.45)", marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   Available This Week
                 </div>
                 <div className="slot-preview">
@@ -114,8 +114,8 @@ export default function Home() {
             <div className="section-label">How It Works</div>
             <h2>Your consultation in three simple steps.</h2>
             <p>
-              From booking to your session — everything is designed to be simple, 
-              private, and professional. No waiting rooms, no hassle.
+              From booking to your session — simple, private, and professional. 
+              No waiting rooms, no hassle.
             </p>
           </div>
           <div className="steps-grid">
@@ -124,8 +124,8 @@ export default function Home() {
               <div className="step-icon">📅</div>
               <h3>Choose Your Slot</h3>
               <p>
-                Browse available appointment times for the next two weeks. 
-                Pick a slot that works for you — mornings, afternoons, or evenings.
+                Browse available times for the next two weeks. 
+                Pick a slot that works — mornings, afternoons, or evenings.
               </p>
             </div>
             <div className="step-card">
@@ -133,7 +133,7 @@ export default function Home() {
               <div className="step-icon">💳</div>
               <h3>Pay Securely</h3>
               <p>
-                Pay in naira using your bank card, bank transfer, OPay, or PalmPay. 
+                Pay in naira using your bank card, transfer, OPay, or PalmPay. 
                 Your slot is confirmed immediately after payment.
               </p>
             </div>
@@ -142,109 +142,58 @@ export default function Home() {
               <div className="step-icon">🩺</div>
               <h3>Consult Dr. Fat</h3>
               <p>
-                Join your private room at the scheduled time — voice call, live chat, 
-                and a shared timer. Get your diagnosis, advice, and next steps.
+                Join your private room — voice call, live chat, and a shared timer. 
+                Get your diagnosis, advice, and next steps.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── MEET DR. FAT ── */}
-      <section className="section" id="meet" style={{ paddingTop: 0 }}>
+      {/* ── MEET DR. FAT — Teaser card ── */}
+      <section className="section" style={{ paddingTop: 0 }} id="meet">
         <div className="wrap">
           <div className="section-head">
-            <div className="section-label">Meet Your Doctor</div>
-            <h2>The person you&apos;ll be speaking with.</h2>
+            <div className="section-label">Your Doctor</div>
+            <h2>Know who you&apos;re speaking with.</h2>
             <p>
-              You deserve to know who you&apos;re trusting with your health. Meet Dr. Fat — 
-              qualified, experienced, and genuinely committed to your wellbeing.
+              We believe you deserve to know your doctor before booking. 
+              Meet Dr. Fat — his background, qualifications, and what he specialises in.
             </p>
           </div>
-          <div className="doctor-section">
-            <div className="doctor-inner">
-              {/* Left — Photo column */}
-              <div className="doctor-photo-col">
-                <div className="doctor-avatar-ring">👨‍⚕️</div>
-                <div className="doctor-name-tag">
-                  <h3>Dr. Fat</h3>
-                  <p>MBBS · MDCN Registered</p>
-                </div>
-                <div className="doctor-badge-strip">
-                  <span>🏥 General Practice</span>
-                  <span>🧠 Mental Wellness</span>
-                  <span>💊 Chronic Care</span>
-                  <span>🌿 Preventive Medicine</span>
-                </div>
+          <div className="meet-teaser">
+            <div className="meet-teaser-avatar">👨‍⚕️</div>
+            <div className="meet-teaser-body">
+              <h3>Dr. Fat — MBBS, MDCN Registered</h3>
+              <p>
+                8+ years of clinical experience in general practice, chronic disease management, 
+                and telemedicine. Serving patients across Nigeria with compassionate, focused care.
+              </p>
+              <div className="meet-teaser-tags">
+                <span className="meet-teaser-tag">🏥 General Practice</span>
+                <span className="meet-teaser-tag">🧠 Mental Wellness</span>
+                <span className="meet-teaser-tag">💊 Chronic Care</span>
+                <span className="meet-teaser-tag">🌿 Preventive Medicine</span>
               </div>
-              {/* Right — Info column */}
-              <div className="doctor-info-col">
-                <div className="section-label" style={{ marginBottom: 8 }}>About Dr. Fat</div>
-                <h2 style={{ marginBottom: 16 }}>Compassionate care, backed by expertise.</h2>
-                <p className="bio">
-                  Dr. Fat is a qualified medical doctor registered with the Medical and Dental 
-                  Council of Nigeria (MDCN), with over 8 years of clinical experience spanning 
-                  general practice, telemedicine, and chronic disease management. Having worked 
-                  in both private and public healthcare settings across Nigeria, Dr. Fat brings 
-                  a deep understanding of the health challenges Nigerians face every day — and 
-                  the practical, compassionate approach to care they deserve.
-                </p>
-                <p className="bio" style={{ marginBottom: 0 }}>
-                  ConsultDrFat was built on a simple belief: quality medical attention should 
-                  not require a 2-hour wait or a costly clinic visit. Every patient deserves 
-                  focused, unhurried time with their doctor — from wherever they are.
-                </p>
-                <div className="doctor-credentials" style={{ marginTop: 24 }}>
-                  <div className="credential-item">
-                    <div className="cred-icon">🎓</div>
-                    <div>
-                      <h5>MBBS (Medicine & Surgery)</h5>
-                      <p>University of Lagos · 2014</p>
-                    </div>
-                  </div>
-                  <div className="credential-item">
-                    <div className="cred-icon">🏥</div>
-                    <div>
-                      <h5>MDCN Registered Practitioner</h5>
-                      <p>Medical & Dental Council of Nigeria</p>
-                    </div>
-                  </div>
-                  <div className="credential-item">
-                    <div className="cred-icon">📋</div>
-                    <div>
-                      <h5>General & Family Medicine</h5>
-                      <p>Primary care, chronic disease, preventive health</p>
-                    </div>
-                  </div>
-                  <div className="credential-item">
-                    <div className="cred-icon">💻</div>
-                    <div>
-                      <h5>Telemedicine Specialist</h5>
-                      <p>4+ years of digital-first patient care in Nigeria</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="doctor-stats-row">
-                  <div className="doc-stat"><div className="val">8+</div><div className="lbl">Years clinical experience</div></div>
-                  <div className="doc-stat"><div className="val">500+</div><div className="lbl">Patients consulted</div></div>
-                  <div className="doc-stat"><div className="val">4.9★</div><div className="lbl">Patient satisfaction</div></div>
-                  <div className="doc-stat"><div className="val">6 days</div><div className="lbl">Available per week</div></div>
-                </div>
-              </div>
+            </div>
+            <div style={{ flexShrink: 0 }}>
+              <Link href="/meet/" className="btn btn-primary">
+                Meet Dr. Fat →
+              </Link>
             </div>
           </div>
         </div>
       </section>
 
       {/* ── WHY CONSULT DR. FAT ── */}
-      <section className="section" style={{ background: "var(--teal-pale)", marginTop: 0 }}>
+      <section className="section" style={{ background: "var(--teal-pale)", paddingTop: 0, marginTop: 0 }} id="why">
         <div className="wrap">
-          <div className="section-head">
+          <div className="section-head" style={{ paddingTop: 72 }}>
             <div className="section-label">Why Choose Us</div>
             <h2>Medicine you can trust, care you can feel.</h2>
             <p>
               ConsultDrFat was built for Nigerians who deserve quality medical 
-              attention without the stress of traffic, queues, and long waits.
+              attention without traffic, queues, and long waits.
             </p>
           </div>
           <div className="features-grid">
@@ -254,8 +203,7 @@ export default function Home() {
                 <h4>Fully Private &amp; Confidential</h4>
                 <p>
                   All sessions are encrypted end-to-end. Your health information 
-                  stays between you and Dr. Fat — never shared, never stored 
-                  beyond your session.
+                  stays between you and Dr. Fat — never shared, never stored beyond your session.
                 </p>
               </div>
             </div>
@@ -265,8 +213,7 @@ export default function Home() {
                 <h4>Qualified &amp; Experienced Doctor</h4>
                 <p>
                   Dr. Fat is a fully registered medical practitioner with over 8 years 
-                  of clinical experience — general practice, chronic disease management, 
-                  and preventive care.
+                  of clinical experience in general practice and chronic disease management.
                 </p>
               </div>
             </div>
@@ -275,8 +222,8 @@ export default function Home() {
               <div>
                 <h4>Focused 30-Minute Sessions</h4>
                 <p>
-                  No rushed 5-minute slots. Every session is 30 minutes of dedicated 
-                  one-on-one time. If you need more time, you can extend mid-session.
+                  No rushed 5-minute slots. 30 minutes of dedicated one-on-one time. 
+                  Need more? Extend your session mid-consultation.
                 </p>
               </div>
             </div>
@@ -285,9 +232,8 @@ export default function Home() {
               <div>
                 <h4>Built for Nigeria</h4>
                 <p>
-                  Pay in naira via card, bank transfer, OPay, or PalmPay — methods 
-                  Nigerians use every day. Sessions run on a reliable connection 
-                  optimised for local internet speeds.
+                  Pay via card, bank transfer, OPay, or PalmPay — methods Nigerians 
+                  use every day. Optimised for local internet speeds.
                 </p>
               </div>
             </div>
@@ -296,8 +242,7 @@ export default function Home() {
               <div>
                 <h4>Voice + Chat in One Room</h4>
                 <p>
-                  Speak directly with Dr. Fat by voice, or use the live chat if 
-                  voice isn&apos;t convenient. Both sides see the same shared countdown 
+                  Speak by voice or use live chat. Both sides see the same shared countdown 
                   so time is never wasted.
                 </p>
               </div>
@@ -307,9 +252,8 @@ export default function Home() {
               <div>
                 <h4>Digital Notes &amp; Referrals</h4>
                 <p>
-                  After your session, receive a typed summary of your consultation — 
-                  recommendations, prescriptions, or referrals as needed, sent 
-                  directly to your email.
+                  After your session, receive a typed summary — recommendations, 
+                  prescriptions, or referrals — sent directly to your email.
                 </p>
               </div>
             </div>
@@ -317,7 +261,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── CONDITIONS WE CONSULT ── */}
+      {/* ── CONDITIONS ── */}
       <section className="section" id="areas">
         <div className="wrap">
           <div className="section-head">
@@ -337,10 +281,10 @@ export default function Home() {
               { icon: "👶", title: "Child Health", desc: "Paediatric questions, vaccinations, growth & development" },
               { icon: "🩸", title: "Lab Result Review", desc: "Interpret your blood work, scans, and test results clearly" },
             ].map((c) => (
-              <div className="card" key={c.title} style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                <div style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{c.icon}</div>
+              <div className="card" key={c.title} style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
+                <div style={{ fontSize: 26, lineHeight: 1, flexShrink: 0 }}>{c.icon}</div>
                 <div>
-                  <h4 style={{ fontSize: 15, marginBottom: 5, fontFamily: "var(--font-pjs), sans-serif" }}>{c.title}</h4>
+                  <h4 style={{ fontSize: 14.5, marginBottom: 4, fontFamily: "var(--font-pjs), sans-serif" }}>{c.title}</h4>
                   <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.55 }}>{c.desc}</p>
                 </div>
               </div>
@@ -355,8 +299,8 @@ export default function Home() {
           <div className="cta-band">
             <h2>Ready to speak with Dr. Fat?</h2>
             <p>
-              Book your session today. Available appointments for the next 14 days.<br/>
-              Secure, private, and professional — from wherever you are in Nigeria.
+              Book your session today — available appointments for the next 14 days.<br/>
+              Secure, private, and professional, from wherever you are in Nigeria.
             </p>
             <Link href="/book/" className="btn btn-primary btn-lg">
               📅 Book Your Consultation
@@ -365,16 +309,16 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── FOOTER ── */}
+      {/* ── FOOTER — no practitioner link ── */}
       <footer className="footer">
         <div className="wrap">
           <div className="footer-inner">
             <div className="footer-brand">
-              <div className="brand" style={{ marginBottom: 12 }}>
+              <div className="brand" style={{ marginBottom: 4 }}>
                 <div className="brand-icon">🩺</div>
                 <div className="brand-text">
-                  <span style={{ color: "#fff" }}>ConsultDrFat</span>
-                  <small>Medical Consultations</small>
+                  <span style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>ConsultDrFat</span>
+                  <small style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.45)", letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 2, display: "block" }}>Medical Consultations</small>
                 </div>
               </div>
               <p>
@@ -386,7 +330,7 @@ export default function Home() {
               <h5>Sessions</h5>
               <a href="/book/">Book a Consultation</a>
               <a href="/#how">How It Works</a>
-              <a href="/#meet">Meet Dr. Fat</a>
+              <a href="/meet/">Meet Dr. Fat</a>
               <a href="/#areas">Areas of Practice</a>
             </div>
             <div className="footer-col">

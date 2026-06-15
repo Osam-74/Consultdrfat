@@ -1,9 +1,19 @@
 {
-  "framework": "nextjs",
   "buildCommand": "npm run build",
   "outputDirectory": "out",
   "installCommand": "npm install --legacy-peer-deps",
-  "env": {
-    "DEPLOY_TARGET": "vercel"
-  }
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
+    }
+  ]
 }
