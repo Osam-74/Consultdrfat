@@ -1,3 +1,4 @@
+
 /* ─────────────────────────────────────────────
    ConsultDrFat — Global Design System
    Brand: Trust · Clarity · Medical Authority
@@ -38,7 +39,7 @@
 *{box-sizing:border-box;margin:0;padding:0;}
 
 body {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-pjs), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
@@ -48,7 +49,7 @@ body {
 }
 
 h1, h2, h3, h4 {
-  font-family: 'Lora', Georgia, serif;
+  font-family: var(--font-lora), Georgia, serif;
   font-weight: 600;
   line-height: 1.2;
   color: var(--navy);
@@ -72,7 +73,7 @@ button { font-family: inherit; cursor: pointer; }
   display: inline-flex; align-items: center; justify-content: center;
   gap: 8px; border: none; border-radius: 12px;
   padding: 13px 26px; font-size: 14.5px; font-weight: 600;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-pjs), sans-serif;
   letter-spacing: 0.01em; cursor: pointer;
   transition: all 0.18s ease;
   text-decoration: none;
@@ -115,7 +116,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .brand {
   display: flex; align-items: center; gap: 12px;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-pjs), sans-serif;
   font-size: 18px; font-weight: 700; color: var(--navy);
   letter-spacing: -0.02em;
 }
@@ -219,7 +220,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .hero-card-info h4 {
   color: #fff; font-size: 16px; margin: 0 0 2px;
-  font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 600;
+  font-family: var(--font-pjs), sans-serif; font-weight: 600;
 }
 .hero-card-info p { color: rgba(255,255,255,.6); font-size: 13px; }
 
@@ -233,7 +234,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .stat-box .stat-val {
   font-size: 22px; font-weight: 700; color: #fff;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-pjs), sans-serif;
 }
 .stat-box .stat-lbl { font-size: 10.5px; color: rgba(255,255,255,.5); margin-top: 2px; }
 
@@ -336,7 +337,7 @@ button { font-family: inherit; cursor: pointer; }
 .fi-sky { background: var(--sky-soft); color: var(--sky); }
 .fi-gold { background: var(--gold-soft); color: var(--gold); }
 .fi-navy { background: rgba(11,43,74,.08); color: var(--navy); }
-.feature-card h4 { font-size: 15.5px; margin-bottom: 6px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 600; }
+.feature-card h4 { font-size: 15.5px; margin-bottom: 6px; font-family: var(--font-pjs), sans-serif; font-weight: 600; }
 .feature-card p { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
 
 /* ─── CTA Band ────────────────────────────── */
@@ -380,7 +381,7 @@ button { font-family: inherit; cursor: pointer; }
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
-.panel-head h3 { font-size: 16px; color: var(--navy); font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; }
+.panel-head h3 { font-size: 16px; color: var(--navy); font-family: var(--font-pjs), sans-serif; font-weight: 700; }
 .windownote {
   font-size: 11px; color: var(--muted);
   background: var(--sky-soft); border: 1px solid #C8DFF0;
@@ -438,12 +439,12 @@ button { font-family: inherit; cursor: pointer; }
   display: flex; justify-content: space-between; align-items: baseline;
   border-top: 1px dashed var(--line); margin-top: 16px; padding-top: 14px;
 }
-.price { font-family: 'Lora', serif; font-size: 28px; color: var(--navy); font-weight: 600; }
+.price { font-family: var(--font-lora), serif; font-size: 28px; color: var(--navy); font-weight: 600; }
 
 /* ─── Form inputs ────────────────────────── */
 textarea, input[type=text], input[type=time], input[type=date], input[type=number], select {
   width: 100%; border: 1.5px solid var(--line); border-radius: 10px;
-  padding: 10px 14px; font-family: 'Plus Jakarta Sans', sans-serif;
+  padding: 10px 14px; font-family: var(--font-pjs), sans-serif;
   font-size: 14px; background: var(--white); color: var(--ink);
   transition: border-color 0.15s;
 }
@@ -465,7 +466,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 .adminbar .tabbtn:hover { border-color: var(--teal); color: var(--teal); }
 .adminbar .tabbtn.active { background: var(--teal); color: #fff; border-color: var(--teal); }
 
-.card h3 { font-size: 16px; margin-bottom: 12px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; }
+.card h3 { font-size: 16px; margin-bottom: 12px; font-family: var(--font-pjs), sans-serif; font-weight: 700; }
 .rowflex { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .rowflex > div { flex: 1; min-width: 90px; }
 .lab { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
@@ -534,7 +535,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, #fff, #F7FAF9);
 }
-.timer { font-size: 50px; line-height: 1; color: var(--teal); font-variant-numeric: tabular-nums; font-weight: 700; transition: color 0.4s; font-family: 'Plus Jakarta Sans', sans-serif; }
+.timer { font-size: 50px; line-height: 1; color: var(--teal); font-variant-numeric: tabular-nums; font-weight: 700; transition: color 0.4s; font-family: var(--font-pjs), sans-serif; }
 .timer.warn { color: var(--gold); }
 .timer.crit { color: var(--red); }
 .tl { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-top: 6px; font-weight: 600; }
@@ -592,7 +593,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 }
 .footer-brand .brand { color: #fff; margin-bottom: 12px; }
 .footer-brand p { font-size: 13.5px; line-height: 1.65; max-width: 280px; }
-.footer-col h5 { color: #fff; font-size: 13px; font-weight: 700; margin-bottom: 14px; font-family: 'Plus Jakarta Sans', sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+.footer-col h5 { color: #fff; font-size: 13px; font-weight: 700; margin-bottom: 14px; font-family: var(--font-pjs), sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
 .footer-col a { display: block; font-size: 13px; color: rgba(255,255,255,.55); margin-bottom: 8px; transition: color 0.15s; }
 .footer-col a:hover { color: #fff; }
 .footer-bottom { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; font-size: 12.5px; color: rgba(255,255,255,.4); flex-wrap: wrap; gap: 10px; }
@@ -683,7 +684,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 }
 .overlay h3 {
   color: #fff; font-size: 20px; margin-bottom: 10px;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-pjs), sans-serif;
 }
 .overlay p {
   color: rgba(255,255,255,.7); font-size: 14px; line-height: 1.6;
