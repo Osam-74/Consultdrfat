@@ -7,8 +7,6 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "worker:dev": "cd workers/api && wrangler dev",
     "worker:deploy": "cd workers/api && wrangler deploy"
   },
@@ -21,12 +19,9 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240909.0",
-    "@opennextjs/cloudflare": "^1.19.11",
     "@types/node": "20.14.10",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "5.5.4",
-    "wrangler": "^4.86.0"
+    "typescript": "5.5.4"
   }
 }
