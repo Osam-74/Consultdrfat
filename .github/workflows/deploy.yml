@@ -1,36 +1,28 @@
-name: Deploy to Cloudflare Pages
+# This workflow is DISABLED — Cloudflare Pages uses direct Git integration instead.
+# Go to: dash.cloudflare.com → Workers & Pages → consultdrfat → Settings → Builds & deployments
+# Build command: npm run build
+# Build output directory: out
+# Node.js version: 22
+#
+# To re-enable GitHub Actions deployment, uncomment below and add these GitHub secrets:
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+
+name: Build & Deploy to Cloudflare Pages (disabled)
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:  # manual trigger only — not automatic
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Build & Deploy to Cloudflare Pages
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # This runs: opennextjs-cloudflare build && opennextjs-cloudflare deploy
-          command: pages deploy
+      - run: npm ci --legacy-peer-deps
+      - name: Build
         env:
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: consultdrfat.firebaseapp.com
@@ -39,11 +31,10 @@ jobs:
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "101708230797"
           NEXT_PUBLIC_FIREBASE_APP_ID: "1:101708230797:web:698b771ef26868be5f32c4"
           NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY }}
-          NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-          NEXT_PUBLIC_PRACTITIONER_UID: ${{ secrets.NEXT_PUBLIC_PRACTITIONER_UID }}
-
-      # NOTE: Cloudflare Pages deployment is ALSO handled via direct Git integration.
-      # Go to dash.cloudflare.com → Workers & Pages → your project → Settings → Builds
-      # Connect GitHub → Build command: npm run deploy → Output directory: .open-next
-      # Add env vars (NEXT_PUBLIC_*) in Pages project settings.
-      # That is the RECOMMENDED approach — no GitHub secrets needed for Cloudflare.
+        run: npm run build
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy out --project-name=consultdrfat --commit-dirty=true

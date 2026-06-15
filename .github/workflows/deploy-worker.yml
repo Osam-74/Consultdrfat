@@ -1,31 +1,20 @@
-name: Deploy Cloudflare Worker
+# Worker deployment — manual trigger only
+# Run this when you're ready to deploy the Cloudflare Worker (workers/api/)
+name: Deploy Cloudflare Worker (manual)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'workers/**'
-      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
 
 jobs:
   deploy-worker:
     runs-on: ubuntu-latest
-    name: Deploy Worker
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Install Worker deps
-        run: cd workers/api && npm ci
-
-      - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
+          node-version: '22'
+      - run: cd workers/api && npm ci --legacy-peer-deps
+      - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
