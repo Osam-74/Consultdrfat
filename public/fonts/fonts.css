@@ -1,70 +1,73 @@
+/* Lora — serif, used for headings */
 @font-face {
   font-family: 'Lora';
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/e2d4e627.ttf') format('truetype');
+  src: url('/fonts/lora-italic-400.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Lora';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/7feb5286.ttf') format('truetype');
+  src: url('/fonts/lora-normal-400.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Lora';
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url('/fonts/cd8f2b73.ttf') format('truetype');
+  src: url('/fonts/lora-normal-600.woff2') format('woff2');
 }
+
+/* Plus Jakarta Sans — sans-serif, used for body/UI */
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/76834b90.ttf') format('truetype');
+  src: url('/fonts/pjs-italic-400.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
   font-weight: 300;
   font-display: swap;
-  src: url('/fonts/a5b06fab.ttf') format('truetype');
+  src: url('/fonts/pjs-normal-300.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/a61e26c3.ttf') format('truetype');
+  src: url('/fonts/pjs-normal-400.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url('/fonts/d11c7c2b.ttf') format('truetype');
+  src: url('/fonts/pjs-normal-500.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url('/fonts/9f311d0e.ttf') format('truetype');
+  src: url('/fonts/pjs-normal-600.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/78a6995f.ttf') format('truetype');
+  src: url('/fonts/pjs-normal-700.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
   font-weight: 800;
   font-display: swap;
-  src: url('/fonts/2eb7c869.ttf') format('truetype');
+  src: url('/fonts/pjs-normal-800.woff2') format('woff2');
 }
