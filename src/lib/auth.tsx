@@ -4,8 +4,6 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import {
   GoogleAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut as fbSignOut,
@@ -43,14 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isReady()) { setLoading(false); return; }
-
-    // Handle redirect result on page load (after signInWithRedirect)
-    getRedirectResult(auth).then((result) => {
-      if (result?.user) setUser(result.user);
-    }).catch((err) => {
-      console.warn("Redirect sign-in error:", err);
-    });
-
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -70,22 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInGoogle = async () => {
     if (!isReady()) return;
     const provider = new GoogleAuthProvider();
+    provider.addScope("email");
+    provider.addScope("profile");
     provider.setCustomParameters({ prompt: "select_account" });
+    // Log the full error so we can debug from browser console
     try {
-      // Try popup first
       await signInWithPopup(auth, provider);
     } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? "";
-      // If popup was blocked or failed, fall back to redirect
-      if (
-        code === "auth/popup-blocked" ||
-        code === "auth/popup-closed-by-user" ||
-        code === "auth/cancelled-popup-request" ||
-        code === "auth/operation-not-supported-in-this-environment"
-      ) {
-        await signInWithRedirect(auth, provider);
-        return;
-      }
+      console.error("[Google Sign-In Error]", err);
       throw err;
     }
   };

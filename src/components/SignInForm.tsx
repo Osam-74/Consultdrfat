@@ -45,14 +45,16 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     switch (code) {
       case "auth/user-not-found":
       case "auth/wrong-password":
-      case "auth/invalid-credential": return "Incorrect email or password.";
-      case "auth/too-many-requests":  return "Too many attempts — try again later or reset your password.";
-      case "auth/user-disabled":      return "This account has been disabled.";
+      case "auth/invalid-credential":       return "Incorrect email or password.";
+      case "auth/too-many-requests":         return "Too many attempts — try again later or reset your password.";
+      case "auth/user-disabled":             return "This account has been disabled.";
       case "auth/popup-closed-by-user":
-      case "auth/cancelled-popup-request": return "Sign-in cancelled.";
-      case "auth/popup-blocked":      return "Pop-up blocked by your browser. Please allow pop-ups for this site and try again.";
-      case "auth/network-request-failed": return "Network error — check your connection and try again.";
-      default: return "Sign-in failed. Please try again.";
+      case "auth/cancelled-popup-request":   return "Sign-in cancelled.";
+      case "auth/popup-blocked":             return "Pop-up blocked by your browser. Please allow pop-ups for this site and try again.";
+      case "auth/network-request-failed":    return "Network error — check your connection and try again.";
+      case "auth/unauthorized-domain":       return "This domain is not authorised. Please contact support.";
+      case "auth/operation-not-allowed":     return "Google sign-in is not enabled. Please contact support.";
+      default:                               return `Sign-in failed (${code || "unknown"}). Please try again.`;
     }
   };
 
@@ -62,7 +64,9 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     try {
       await signInEmail(email, password);
     } catch (err: unknown) {
-      setError(friendlyError((err as { code?: string }).code ?? ""));
+      const code = (err as { code?: string }).code ?? "";
+      console.error("[Email Sign-In]", code, err);
+      setError(friendlyError(code));
     } finally { setBusy(false); }
   };
 
@@ -72,6 +76,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
       await signInGoogle();
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
+      console.error("[Google Sign-In]", code, err);
       if (code !== "auth/cancelled-popup-request" && code !== "auth/popup-closed-by-user") {
         setError(friendlyError(code));
       }
@@ -94,14 +99,12 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     <div className="signin-page">
       <div className="signin-card">
 
-        {/* Brand badge */}
         <div className="brand-badge">
           <div className="icon">🩺</div>
           <h2>{mode === "reset" ? "Reset Password" : title}</h2>
           <p className="subtitle">{mode === "reset" ? "Enter your email and we'll send a reset link." : subtitle}</p>
         </div>
 
-        {/* Reset success */}
         {resetSent ? (
           <div className="signin-success">
             <div className="success-icon">📬</div>
@@ -132,7 +135,6 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
           </form>
         ) : (
           <>
-            {/* Google sign-in */}
             <button className="btn-google" onClick={handleGoogle} disabled={googleBusy || busy} type="button">
               {googleBusy ? (
                 <span style={{ fontSize: 13 }}>Connecting…</span>
@@ -143,7 +145,6 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
 
             <div className="divider-or">or sign in with email</div>
 
-            {/* Email / password form */}
             <form onSubmit={handleEmail}>
               <div className="signin-field">
                 <label>Email address</label>
