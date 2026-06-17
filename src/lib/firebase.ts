@@ -2,9 +2,10 @@ import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
-// authDomain = Firebase's own domain. Required for Firestore + Auth SDK init.
-// We no longer use Firebase's popup/redirect flow (to avoid the iframe issue),
-// so this domain never gets loaded as an iframe.
+// authDomain MUST be the Firebase project's own domain (not the Vercel URL).
+// This is required for signInWithPopup and signInWithRedirect to work correctly.
+// Firebase Console → Authentication → Settings → Authorized domains
+// must include your Vercel deploy URL (consultdrfat.vercel.app).
 const config = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY             || "placeholder-build-key",
   authDomain:        "consultdrfat.firebaseapp.com",

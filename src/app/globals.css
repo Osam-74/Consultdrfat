@@ -937,6 +937,27 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .adminbar .tabbtn { padding: 7px 13px; font-size: 12.5px; }
 }
 
+
+  /* Sign-in card mobile */
+  .signin-card { padding: 28px 20px 24px; border-radius: 18px; }
+  .signin-page { padding: 16px 12px; }
+  
+  /* Prevent any panel/grid overflow */
+  .panel { padding: 16px; }
+  .book-grid { margin: 12px 0 36px; }
+  .page-head { padding: 20px 0 10px; }
+  
+  /* Calendar cells — smaller on mobile */
+  .cal { gap: 3px; }
+  .day { font-size: 11px; }
+  .day .mon { font-size: 7px; }
+  
+  /* Session room */
+  .session-card, .overlay-card { max-width: 100%; margin: 0 8px; }
+  
+  /* Admin */
+  .p-dfta-wrap { padding: 0 12px; }
+
 /* Small mobile */
 @media (max-width: 420px) {
   .hero-left h1 { font-size: 21px; }

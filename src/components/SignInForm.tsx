@@ -90,9 +90,17 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     } finally { setBusy(false); }
   };
 
-  const handleGoogle = () => {
+  const handleGoogle = async () => {
     setError("");
-    signInGoogle();
+    setBusy(true);
+    try {
+      await signInGoogle();
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      setError(friendly(code));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const modeTitle    = mode === "register" ? "Create Account" : mode === "reset" ? "Reset Password" : title;
