@@ -9,6 +9,18 @@ import {
 } from "./types";
 
 /* ───────────────────────── Settings ───────────────────────── */
+/* ───────────────────────── Config / Practitioner ──────────── */
+// Writes the practitioner UID to /config/practitioner so Firestore rules
+// can look it up dynamically. Call this once after the practitioner signs in.
+export async function ensurePractitionerConfig(uid: string) {
+  const ref = doc(db, "config", "practitioner");
+  const snap = await getDoc(ref);
+  if (!snap.exists() || snap.data().uid !== uid) {
+    await setDoc(ref, { uid }, { merge: true });
+  }
+}
+
+
 // NOTE: do NOT evaluate doc(db, ...) at module level — db is a stub during SSR.
 // All references to db are inside async functions that only run in the browser.
 

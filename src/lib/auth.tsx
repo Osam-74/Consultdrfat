@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
+  GoogleAuthProvider,
+  signInWithPopup,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut as fbSignOut,
@@ -15,27 +17,30 @@ interface AuthState {
   user: User | null;
   role: Role | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signInEmail: (email: string, password: string) => Promise<void>;
+  signInGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
 
 const Ctx = createContext<AuthState>({
   user: null, role: null, loading: true,
-  signIn: async () => {},
+  signInEmail: async () => {},
+  signInGoogle: async () => {},
   signOut: async () => {},
   resetPassword: async () => {},
 });
+
+function isReady() {
+  return auth && typeof (auth as { onAuthStateChanged?: unknown }).onAuthStateChanged === "function";
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!auth || typeof auth.onAuthStateChanged !== "function") {
-      setLoading(false);
-      return;
-    }
+    if (!isReady()) { setLoading(false); return; }
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -44,26 +49,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const role: Role | null = user
-    ? user.uid === PRACTITIONER_UID ? "practitioner" : "client"
+    ? (user.uid === PRACTITIONER_UID ? "practitioner" : "client")
     : null;
 
-  const signIn = async (email: string, password: string) => {
-    if (!auth || typeof auth.onAuthStateChanged !== "function") return;
+  const signInEmail = async (email: string, password: string) => {
+    if (!isReady()) return;
     await signInWithEmailAndPassword(auth, email, password);
   };
 
+  const signInGoogle = async () => {
+    if (!isReady()) return;
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    await signInWithPopup(auth, provider);
+  };
+
   const signOut = async () => {
-    if (!auth || typeof auth.onAuthStateChanged !== "function") return;
+    if (!isReady()) return;
     await fbSignOut(auth);
   };
 
   const resetPassword = async (email: string) => {
-    if (!auth || typeof auth.onAuthStateChanged !== "function") return;
+    if (!isReady()) return;
     await sendPasswordResetEmail(auth, email);
   };
 
   return (
-    <Ctx.Provider value={{ user, role, loading, signIn, signOut, resetPassword }}>
+    <Ctx.Provider value={{ user, role, loading, signInEmail, signInGoogle, signOut, resetPassword }}>
       {children}
     </Ctx.Provider>
   );

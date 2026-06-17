@@ -2,33 +2,48 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // The practitioner is identified by a single UID set at deploy time.
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    // Practitioner is identified via a Firestore config doc so we don't need
+    // to hard-code a UID in rules (which breaks when UID is not yet known at
+    // deploy time).  The /config/practitioner doc must exist with field `uid`.
+    function practitionerUid() {
+      return get(/databases/$(database)/documents/config/practitioner).data.uid;
+    }
     function isPractitioner() {
-      return request.auth != null
-        && request.auth.uid == 'REPLACE_WITH_PRACTITIONER_UID';
+      return request.auth != null && request.auth.uid == practitionerUid();
     }
     function signedIn() { return request.auth != null; }
 
-    // Public read of practice settings & availability; only the practitioner writes.
+    // ── Config (read-only to all, write only to current practitioner) ────────
+    // Bootstrap: first write allowed when doc doesn't exist yet.
+    match /config/{doc} {
+      allow read: if true;
+      allow write: if isPractitioner()
+        || !exists(/databases/$(database)/documents/config/practitioner);
+    }
+
+    // ── Practice data (public read, practitioner write) ──────────────────────
     match /settings/{doc}            { allow read: if true; allow write: if isPractitioner(); }
     match /availabilityTemplates/{d} { allow read: if true; allow write: if isPractitioner(); }
     match /availabilityExceptions/{d}{ allow read: if true; allow write: if isPractitioner(); }
 
-    // Bookings: a client creates their own; both owner and practitioner can read;
-    // the practitioner manages status.
+    // ── Bookings ─────────────────────────────────────────────────────────────
     match /bookings/{id} {
-      allow read:   if isPractitioner() || (signedIn() && resource.data.clientId == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.clientId == request.auth.uid;
+      allow read:   if isPractitioner()
+        || (signedIn() && resource.data.clientId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.clientId == request.auth.uid;
       allow update: if isPractitioner()
         || (signedIn() && resource.data.clientId == request.auth.uid);
     }
 
-    // A session belongs to a booking; participants (client/practitioner) read & write.
+    // ── Sessions ─────────────────────────────────────────────────────────────
     match /sessions/{bookingId} {
       function bookingOwner() {
         return get(/databases/$(database)/documents/bookings/$(bookingId)).data.clientId;
       }
-      allow read, write: if isPractitioner() || (signedIn() && bookingOwner() == request.auth.uid);
+      allow read, write: if isPractitioner()
+        || (signedIn() && bookingOwner() == request.auth.uid);
 
       match /messages/{m} {
         allow read, create: if isPractitioner()
@@ -36,7 +51,7 @@ service cloud.firestore {
       }
     }
 
-    // WebRTC signaling docs — same participants as the session.
+    // ── WebRTC signaling ─────────────────────────────────────────────────────
     match /calls/{bookingId} {
       allow read, write: if isPractitioner()
         || (signedIn() && get(/databases/$(database)/documents/bookings/$(bookingId)).data.clientId == request.auth.uid);
@@ -46,8 +61,7 @@ service cloud.firestore {
       }
     }
 
-    // Outbound email queue (Firebase "Trigger Email" extension). Clients may enqueue
-    // only their own notifications; the extension (admin) reads/sends.
+    // ── Mail queue ───────────────────────────────────────────────────────────
     match /mail/{id} { allow create: if signedIn(); allow read, update, delete: if false; }
   }
 }
