@@ -32,7 +32,7 @@ interface Props {
 }
 
 export default function SignInForm({ title = "Sign In", subtitle = "Enter your credentials to continue." }: Props) {
-  const { signInEmail, signUpEmail, signInGoogle, resetPassword, redirecting } = useAuth();
+  const { signInEmail, signUpEmail, signInGoogle, resetPassword } = useAuth();
   const [mode, setMode]           = useState<Mode>("signin");
   const [name, setName]           = useState("");
   const [email, setEmail]         = useState("");
@@ -40,7 +40,6 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
   const [confirm, setConfirm]     = useState("");
   const [showPw, setShowPw]       = useState(false);
   const [busy, setBusy]           = useState(false);
-  const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError]         = useState("");
   const [resetSent, setResetSent] = useState(false);
 
@@ -91,16 +90,9 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     } finally { setBusy(false); }
   };
 
-  const handleGoogle = async () => {
-    setError(""); setGoogleBusy(true);
-    try { await signInGoogle(); }
-    catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? "";
-      console.error("[Google auth]", code, err);
-      if (code !== "auth/cancelled-popup-request" && code !== "auth/popup-closed-by-user") {
-        setError(friendly(code));
-      }
-    } finally { setGoogleBusy(false); }
+  const handleGoogle = () => {
+    setError("");
+    signInGoogle();
   };
 
   const modeTitle    = mode === "register" ? "Create Account" : mode === "reset" ? "Reset Password" : title;
@@ -115,17 +107,8 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
           <p className="subtitle">{modeSubtitle}</p>
         </div>
 
-        {/* ── Redirecting overlay ── */}
-        {redirecting && (
-          <div style={{ textAlign: "center", padding: "24px 0" }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🔄</div>
-            <p style={{ color: "var(--navy)", fontWeight: 600 }}>Redirecting to Google…</p>
-            <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>You'll be brought back here after signing in.</p>
-          </div>
-        )}
-
         {/* ── Reset sent ── */}
-        {!redirecting && resetSent && (
+        {resetSent && (
           <div className="signin-success">
             <div className="success-icon">📬</div>
             <p style={{ fontWeight: 700, color: "var(--navy)", marginBottom: 6 }}>Check your inbox</p>
@@ -137,7 +120,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
         )}
 
         {/* ── Reset form ── */}
-        {!redirecting && !resetSent && mode === "reset" && (
+        {!resetSent && mode === "reset" && (
           <form onSubmit={handleReset}>
             <div className="signin-field">
               <label>Email address</label>
@@ -157,14 +140,11 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
         )}
 
         {/* ── Sign In / Register ── */}
-        {!redirecting && !resetSent && (mode === "signin" || mode === "register") && (
+        {!resetSent && (mode === "signin" || mode === "register") && (
           <>
             {/* Google button */}
-            <button className="btn-google" onClick={handleGoogle} disabled={googleBusy || busy} type="button">
-              {googleBusy
-                ? <span style={{ fontSize: 13 }}>Connecting to Google…</span>
-                : <><GoogleLogo /><span>Continue with Google</span></>
-              }
+            <button className="btn-google" onClick={handleGoogle} disabled={busy} type="button">
+              <GoogleLogo /><span>Continue with Google</span>
             </button>
 
             <div className="divider-or">or {mode === "register" ? "register" : "sign in"} with email</div>
@@ -215,7 +195,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
 
               {error && <div className="signin-error">⚠️ {error}</div>}
 
-              <button type="submit" className="btn btn-primary btn-signin" disabled={busy || googleBusy}>
+              <button type="submit" className="btn btn-primary btn-signin" disabled={busy}>
                 {busy
                   ? (mode === "register" ? "Creating account…" : "Signing in…")
                   : (mode === "register" ? "🩺 Create Account" : "🔒 Sign In")

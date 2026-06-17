@@ -3,10 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
   GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  browserPopupRedirectResolver,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -18,48 +15,96 @@ import {
 import { auth, PRACTITIONER_UID } from "./firebase";
 import { Role } from "./types";
 
+// ── Google OAuth — direct implicit flow, zero Firebase iframe needed ──────────
+//
+// Firebase's signInWithPopup/Redirect loads consultdrfat.firebaseapp.com in a
+// cross-origin iframe. Firefox Enhanced Tracking Protection times this out.
+//
+// Solution: drive Google OAuth ourselves using the implicit flow:
+//   1. signInGoogle() saves current path to sessionStorage, redirects to accounts.google.com
+//   2. Google sends user back with #id_token=... in the URL hash
+//   3. On mount, consumeGoogleHash() reads the hash, calls signInWithCredential — done.
+//   No iframe. No popup. No cross-origin anything except accounts.google.com itself.
+//
+// NEXT_PUBLIC_GOOGLE_CLIENT_ID = the "Web client ID" from:
+//   Firebase Console → Authentication → Sign-in method → Google → expand → Web client ID
+
+const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+const RETURN_KEY = "gauth_return";
+
+function buildGoogleUrl(redirectUri: string): string {
+  const p = new URLSearchParams({
+    client_id:     CLIENT_ID,
+    redirect_uri:  redirectUri,
+    response_type: "id_token",
+    scope:         "openid email profile",
+    prompt:        "select_account",
+    nonce:         Math.random().toString(36).slice(2),
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
+}
+
+// Call on mount — if the URL hash has id_token, consume it and sign in
+async function consumeGoogleHash(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const hash = window.location.hash.slice(1);
+  if (!hash.includes("id_token")) return;
+
+  const params = new URLSearchParams(hash);
+  const idToken = params.get("id_token");
+  if (!idToken) return;
+
+  // Clean the hash before Firebase sees anything
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+  const credential = GoogleAuthProvider.credential(idToken);
+  try {
+    await signInWithCredential(auth, credential);
+  } catch (err) {
+    console.error("[consumeGoogleHash] signInWithCredential failed:", err);
+  }
+}
+
+// ── Context ───────────────────────────────────────────────────────────────────
+
 interface AuthState {
   user: User | null;
   role: Role | null;
   loading: boolean;
-  redirecting: boolean;
-  signInEmail: (email: string, password: string) => Promise<void>;
-  signUpEmail: (email: string, password: string, name: string) => Promise<void>;
-  signInGoogle: () => Promise<void>;
-  signOut: () => Promise<void>;
+  signInEmail:   (email: string, password: string) => Promise<void>;
+  signUpEmail:   (email: string, password: string, name: string) => Promise<void>;
+  signInGoogle:  () => void;
+  signOut:       () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
 
 const Ctx = createContext<AuthState>({
-  user: null, role: null, loading: true, redirecting: false,
-  signInEmail: async () => {},
-  signUpEmail: async () => {},
-  signInGoogle: async () => {},
-  signOut: async () => {},
+  user: null, role: null, loading: true,
+  signInEmail:   async () => {},
+  signUpEmail:   async () => {},
+  signInGoogle:  () => {},
+  signOut:       async () => {},
   resetPassword: async () => {},
 });
 
 function ready() {
-  return auth && typeof (auth as unknown as { onAuthStateChanged?: unknown }).onAuthStateChanged === "function";
+  return auth &&
+    typeof (auth as unknown as { onAuthStateChanged?: unknown }).onAuthStateChanged === "function";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]           = useState<User | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [redirecting, setRedirecting] = useState(false);
+  const [user, setUser]       = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!ready()) { setLoading(false); return; }
 
-    // Collect redirect result on mount (fires when Google sends user back)
-    getRedirectResult(auth, browserPopupRedirectResolver)
-      .then((result) => { if (result?.user) setUser(result.user); })
-      .catch((err)   => { console.error("[getRedirectResult]", err?.code, err?.message); });
+    // Consume Google redirect result before anything else
+    consumeGoogleHash().catch(console.error);
 
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
-      setRedirecting(false);
     });
     return unsub;
   }, []);
@@ -79,31 +124,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
   };
 
-  const signInGoogle = async () => {
-    if (!ready()) return;
-    const provider = new GoogleAuthProvider();
-    provider.addScope("email");
-    provider.addScope("profile");
-    provider.setCustomParameters({ prompt: "select_account" });
-
-    try {
-      // Popup with explicit resolver — works on Vercel/Cloudflare static hosts
-      await signInWithPopup(auth, provider, browserPopupRedirectResolver);
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? "";
-      console.error("[signInWithPopup]", code, err);
-      if (
-        code === "auth/popup-blocked" ||
-        code === "auth/popup-closed-by-user" ||
-        code === "auth/cancelled-popup-request"
-      ) {
-        // Popup was blocked/closed — fall back to redirect flow
-        setRedirecting(true);
-        await signInWithRedirect(auth, provider, browserPopupRedirectResolver);
-        return;
-      }
-      throw err;
+  const signInGoogle = () => {
+    if (!CLIENT_ID) {
+      console.error("NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set");
+      alert("Google sign-in is not configured. Please use email/password for now.");
+      return;
     }
+    // redirect_uri must exactly match an entry in Google Cloud Console → OAuth → Authorised redirect URIs
+    const redirectUri = window.location.href.split("#")[0].split("?")[0];
+    window.location.href = buildGoogleUrl(redirectUri);
   };
 
   const signOut = async () => {
@@ -117,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, role, loading, redirecting, signInEmail, signUpEmail, signInGoogle, signOut, resetPassword }}>
+    <Ctx.Provider value={{ user, role, loading, signInEmail, signUpEmail, signInGoogle, signOut, resetPassword }}>
       {children}
     </Ctx.Provider>
   );
