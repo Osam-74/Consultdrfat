@@ -3,7 +3,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
@@ -30,12 +31,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // auth is a no-op stub during SSR; onAuthStateChanged is only called
-    // after hydration when the real Firebase app is available.
+    // auth is a no-op stub during SSR; skip entirely on the server.
     if (!auth || typeof auth.onAuthStateChanged !== "function") {
       setLoading(false);
       return;
     }
+
+    // Handle the redirect result when the user comes back from Google OAuth.
+    // Must be called before onAuthStateChanged so user state is populated
+    // correctly on the first render after the redirect completes.
+    getRedirectResult(auth).catch(() => {
+      // Silently ignore — user may have cancelled or closed the sign-in flow.
+    });
+
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -49,7 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async () => {
     if (!auth || typeof auth.onAuthStateChanged !== "function") return;
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    // signInWithRedirect is more reliable than signInWithPopup for static
+    // exports on Vercel / Cloudflare Pages — avoids popup DOMException issues
+    // caused by cross-origin postMessage restrictions in static deployments.
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    await signInWithRedirect(auth, provider);
   };
 
   const signOut = async () => {
