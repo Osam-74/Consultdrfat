@@ -61,25 +61,7 @@ export default function BookPage() {
   );
 
   if (!user) {
-    return (
-      <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
-        <div className="wrap">
-          <nav className="nav">
-            <div className="brand">
-              <div className="brand-icon">🩺</div>
-              <div className="brand-text">
-                <span>ConsultDrFat</span>
-                <small>Medical Consultations</small>
-              </div>
-            </div>
-            <Link href="/" className="btn btn-ghost btn-sm">← Home</Link>
-          </nav>
-        </div>
-        <div className="center" style={{ minHeight: "70vh" }}>
-          <SignInForm title="Sign in to book" subtitle="Sign in to book your consultation securely." />
-        </div>
-      </div>
-    );
+    return <SignInForm title="Sign in to book" subtitle="Sign in to book your consultation securely." />;
   }
 
   const daySlots = selDay ? byDay.get(selDay) ?? [] : [];
