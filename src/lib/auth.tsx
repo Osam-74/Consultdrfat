@@ -3,7 +3,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut as fbSignOut,
@@ -41,6 +42,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isReady()) { setLoading(false); return; }
+
+    // Pick up the result when Google redirects back to this page
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) setUser(result.user);
+      })
+      .catch((err) => {
+        console.error("[getRedirectResult error]", err);
+      });
+
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -63,13 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     provider.addScope("email");
     provider.addScope("profile");
     provider.setCustomParameters({ prompt: "select_account" });
-    // Log the full error so we can debug from browser console
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (err: unknown) {
-      console.error("[Google Sign-In Error]", err);
-      throw err;
-    }
+    // signInWithRedirect: no popup, no iframe — works on any static host
+    await signInWithRedirect(auth, provider);
   };
 
   const signOut = async () => {

@@ -2,15 +2,12 @@ import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
-// Public Firebase config — values are safe to ship in client-side code.
-// Security is enforced by Firestore Security Rules, not by hiding these values.
-//
-// IMPORTANT: authDomain MUST match the domain the app is served from, or Google
-// OAuth popups will fail with "Sign-in failed". Set NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-// in your Vercel environment variables to: consultdrfat.vercel.app
+// authDomain MUST always be the Firebase project domain (consultdrfat.firebaseapp.com)
+// NOT the Vercel/custom domain. Firebase hosts /__/auth/iframe and /__/auth/handler
+// at this domain — if you set it to your custom domain those routes 404 and OAuth breaks.
 const config = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY             || "placeholder-build-key",
-  authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN         || "consultdrfat.firebaseapp.com",
+  authDomain:        "consultdrfat.firebaseapp.com",
   projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID          || "consultdrfat",
   storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET      || "consultdrfat.firebasestorage.app",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "101708230797",

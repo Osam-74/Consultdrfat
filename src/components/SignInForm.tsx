@@ -49,7 +49,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
       case "auth/too-many-requests":         return "Too many attempts — try again later or reset your password.";
       case "auth/user-disabled":             return "This account has been disabled.";
       case "auth/popup-closed-by-user":
-      case "auth/cancelled-popup-request":   return "Sign-in cancelled.";
+      case "auth/cancelled-popup-request":   return "Sign-in cancelled (popup). Please try again.";
       case "auth/popup-blocked":             return "Pop-up blocked by your browser. Please allow pop-ups for this site and try again.";
       case "auth/network-request-failed":    return "Network error — check your connection and try again.";
       case "auth/unauthorized-domain":       return "This domain is not authorised. Please contact support.";
@@ -137,7 +137,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
           <>
             <button className="btn-google" onClick={handleGoogle} disabled={googleBusy || busy} type="button">
               {googleBusy ? (
-                <span style={{ fontSize: 13 }}>Connecting…</span>
+                <span style={{ fontSize: 13 }}>Redirecting to Google…</span>
               ) : (
                 <><GoogleLogo /><span>Continue with Google</span></>
               )}
