@@ -10,6 +10,7 @@ import {
 import {
   PracticeSettings, DEFAULT_SETTINGS, AvailabilityTemplate, AvailabilityException, Booking,
 } from "@/lib/types";
+import SignInForm from "@/components/SignInForm";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ngn = (n: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(n);
@@ -30,8 +31,10 @@ const BrandNav = ({ onSignOut }: { onSignOut: () => void }) => (
   </nav>
 );
 
+
+// ── Main Admin Page ────────────────────────────────────────────────────────
 export default function AdminPage() {
-  const { user, role, loading, signIn, signOut } = useAuth();
+  const { user, role, loading, signOut } = useAuth();
   const [tab, setTab] = useState<"availability" | "bookings" | "settings">("availability");
   const [settings, setSettings] = useState<PracticeSettings>(DEFAULT_SETTINGS);
   const [templates, setTemplates] = useState<AvailabilityTemplate[]>([]);
@@ -57,32 +60,13 @@ export default function AdminPage() {
     </div>
   );
 
-  if (!user) return (
-    <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
-      <div className="wrap">
-        <nav className="nav">
-          <div className="brand">
-            <div className="brand-icon">🩺</div>
-            <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
-          </div>
-        </nav>
-      </div>
-      <div className="center" style={{ minHeight: "70vh" }}>
-        <div style={{ fontSize: 52, marginBottom: 16 }}>👨‍⚕️</div>
-        <h2>Practitioner Sign In</h2>
-        <p>Sign in with the practitioner Google account to manage your practice, availability, and bookings.</p>
-        <button className="btn btn-primary btn-lg" onClick={() => signIn()}>
-          🔒 Continue with Google
-        </button>
-      </div>
-    </div>
-  );
+  if (!user) return <SignInForm />;
 
   if (role !== "practitioner") return (
     <div className="center" style={{ minHeight: "100vh" }}>
       <div style={{ fontSize: 52, marginBottom: 16 }}>🚫</div>
       <h2>Access Restricted</h2>
-      <p>This area is for the practitioner only. You're signed in as a client.</p>
+      <p>This area is for the practitioner only.</p>
       <Link className="btn btn-primary" href="/book/">📅 Book a Consultation Instead</Link>
     </div>
   );
@@ -166,12 +150,18 @@ export default function AdminPage() {
                     <option value="extra">Extra Hours</option>
                   </select>
                 </div>
-                {exc.type === "extra" && <>
-                  <div><span className="lab">Start</span><input type="time" value={exc.start} onChange={(e) => setExc({ ...exc, start: e.target.value })} /></div>
-                  <div><span className="lab">End</span><input type="time" value={exc.end} onChange={(e) => setExc({ ...exc, end: e.target.value })} /></div>
-                </>}
+                {exc.type === "extra" && (
+                  <>
+                    <div><span className="lab">Start</span><input type="time" value={exc.start} onChange={(e) => setExc({ ...exc, start: e.target.value })} /></div>
+                    <div><span className="lab">End</span><input type="time" value={exc.end} onChange={(e) => setExc({ ...exc, end: e.target.value })} /></div>
+                  </>
+                )}
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button className="btn btn-primary btn-sm" disabled={!exc.date} onClick={async () => { await addException({ date: exc.date, type: exc.type, start: exc.start, end: exc.end }); refresh(); }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={!exc.date}
+                    onClick={async () => { await addException({ date: exc.date, type: exc.type, start: exc.start, end: exc.end }); refresh(); }}
+                  >
                     + Add
                   </button>
                 </div>
@@ -185,26 +175,23 @@ export default function AdminPage() {
           <div className="card">
             <h3>📋 All Bookings</h3>
             {bookings.length === 0 && <p style={{ color: "var(--muted)", fontSize: 14 }}>No bookings yet.</p>}
-            {bookings.sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis()).map((b) => {
-              const d = b.slotStart.toDate();
-              return (
-                <div className="list-row" key={b.id} style={{ flexWrap: "wrap", gap: 6 }}>
-                  <div>
-                    <span style={{ fontWeight: 600 }}>{d.toLocaleDateString("en-NG", { weekday: "short", day: "numeric", month: "short" })}</span>
-                    {" "}
-                    <span style={{ color: "var(--muted)", fontSize: 13 }}>
-                      {d.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
+            {bookings
+              .sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis())
+              .map((b) => {
+                const d = b.slotStart.toDate();
+                return (
+                  <div className="list-row" key={b.id} style={{ flexWrap: "wrap", gap: 6 }}>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{d.toLocaleDateString("en-NG", { weekday: "short", day: "numeric", month: "short" })}</span>{" "}
+                      <span style={{ color: "var(--muted)", fontSize: 13 }}>{d.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <span style={{ color: "var(--ink)", fontSize: 14 }}>{b.clientName}</span>
+                    <span style={{ color: "var(--muted)", fontSize: 13 }}>{ngn(b.amountNGN)}</span>
+                    <span className={`pill ${b.status}`}>{b.status}</span>
+                    <Link className="btn btn-ghost btn-sm" href={`/session/?id=${b.id}&role=practitioner`}>🩺 Open Room</Link>
                   </div>
-                  <span style={{ color: "var(--ink)", fontSize: 14 }}>{b.clientName}</span>
-                  <span style={{ color: "var(--muted)", fontSize: 13 }}>{ngn(b.amountNGN)}</span>
-                  <span className={`pill ${b.status}`}>{b.status}</span>
-                  <Link className="btn btn-ghost btn-sm" href={`/session/?id=${b.id}&role=practitioner`}>
-                    🩺 Open Room
-                  </Link>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         )}
 
@@ -243,6 +230,7 @@ export default function AdminPage() {
             </button>
           </div>
         )}
+
         <div style={{ height: 40 }} />
       </div>
     </div>

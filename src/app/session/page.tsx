@@ -6,8 +6,28 @@ import { useAuth } from "@/lib/auth";
 import { Role } from "@/lib/types";
 import SessionRoom from "@/components/SessionRoom";
 
+import SignInForm from "@/components/SignInForm";
+
+function SignInGate() {
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--paper)", display: "flex", flexDirection: "column" }}>
+      <div className="wrap">
+        <nav className="nav">
+          <div className="brand">
+            <div className="brand-icon">🩺</div>
+            <div className="brand-text"><span>ConsultDrFat</span><small>Session Room</small></div>
+          </div>
+        </nav>
+      </div>
+      <div className="center" style={{ flex: 1 }}>
+        <SignInForm />
+      </div>
+    </div>
+  );
+}
+
 export default function SessionPage() {
-  const { user, role: authRole, loading, signIn } = useAuth();
+  const { user, role: authRole, loading } = useAuth();
   const [params, setParams] = useState<{ id: string; role: Role } | null>(null);
 
   useEffect(() => {
@@ -24,28 +44,7 @@ export default function SessionPage() {
     </div>
   );
 
-  if (!user) {
-    return (
-      <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
-        <div className="wrap">
-          <nav className="nav">
-            <div className="brand">
-              <div className="brand-icon">🩺</div>
-              <div className="brand-text"><span>ConsultDrFat</span><small>Session Room</small></div>
-            </div>
-          </nav>
-        </div>
-        <div className="center" style={{ minHeight: "70vh" }}>
-          <div style={{ fontSize: 52, marginBottom: 16 }}>🔒</div>
-          <h2>Sign in to join your session</h2>
-          <p>Sign in with the Google account you used to book your consultation.</p>
-          <button className="btn btn-primary btn-lg" onClick={() => signIn()}>
-            🔒 Continue with Google
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (!user) return <SignInGate />;
 
   const role: Role = authRole ?? params.role;
   if (!params.id) {

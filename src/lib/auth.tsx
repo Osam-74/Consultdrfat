@@ -2,9 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
-  GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
@@ -16,14 +15,16 @@ interface AuthState {
   user: User | null;
   role: Role | null;
   loading: boolean;
-  signIn: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const Ctx = createContext<AuthState>({
   user: null, role: null, loading: true,
   signIn: async () => {},
   signOut: async () => {},
+  resetPassword: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -31,19 +32,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // auth is a no-op stub during SSR; skip entirely on the server.
     if (!auth || typeof auth.onAuthStateChanged !== "function") {
       setLoading(false);
       return;
     }
-
-    // Handle the redirect result when the user comes back from Google OAuth.
-    // Must be called before onAuthStateChanged so user state is populated
-    // correctly on the first render after the redirect completes.
-    getRedirectResult(auth).catch(() => {
-      // Silently ignore — user may have cancelled or closed the sign-in flow.
-    });
-
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -55,14 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ? user.uid === PRACTITIONER_UID ? "practitioner" : "client"
     : null;
 
-  const signIn = async () => {
+  const signIn = async (email: string, password: string) => {
     if (!auth || typeof auth.onAuthStateChanged !== "function") return;
-    // signInWithRedirect is more reliable than signInWithPopup for static
-    // exports on Vercel / Cloudflare Pages — avoids popup DOMException issues
-    // caused by cross-origin postMessage restrictions in static deployments.
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
-    await signInWithRedirect(auth, provider);
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
   const signOut = async () => {
@@ -70,8 +57,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fbSignOut(auth);
   };
 
+  const resetPassword = async (email: string) => {
+    if (!auth || typeof auth.onAuthStateChanged !== "function") return;
+    await sendPasswordResetEmail(auth, email);
+  };
+
   return (
-    <Ctx.Provider value={{ user, role, loading, signIn, signOut }}>
+    <Ctx.Provider value={{ user, role, loading, signIn, signOut, resetPassword }}>
       {children}
     </Ctx.Provider>
   );

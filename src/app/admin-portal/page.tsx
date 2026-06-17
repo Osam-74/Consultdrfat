@@ -10,6 +10,7 @@ import {
 import {
   PracticeSettings, DEFAULT_SETTINGS, AvailabilityTemplate, AvailabilityException, Booking,
 } from "@/lib/types";
+import SignInForm from "@/components/SignInForm";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const ngn = (n: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(n);
@@ -31,7 +32,7 @@ const BrandNav = ({ onSignOut }: { onSignOut: () => void }) => (
 );
 
 export default function AdminPortalPage() {
-  const { user, role, loading, signIn, signOut } = useAuth();
+  const { user, role, loading, signOut } = useAuth();
   const [tab, setTab] = useState<"availability" | "bookings" | "settings">("availability");
   const [settings, setSettings] = useState<PracticeSettings>(DEFAULT_SETTINGS);
   const [templates, setTemplates] = useState<AvailabilityTemplate[]>([]);
@@ -57,41 +58,7 @@ export default function AdminPortalPage() {
     </div>
   );
 
-  if (!user) return (
-    <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
-      <div className="wrap">
-        <nav className="nav">
-          <div className="brand">
-            <div className="brand-icon">🩺</div>
-            <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
-          </div>
-        </nav>
-      </div>
-      <div className="center" style={{ minHeight: "70vh" }}>
-        {/* Security notice — this portal is for the practitioner only */}
-        <div style={{
-          background: "var(--teal-pale)", border: "1px solid rgba(14,138,122,.2)",
-          borderRadius: 16, padding: "16px 24px", marginBottom: 24,
-          maxWidth: 380, textAlign: "center"
-        }}>
-          <p style={{ fontSize: 13, color: "var(--teal-mid)", margin: 0, lineHeight: 1.6 }}>
-            🔒 <strong>This is the practitioner-only portal.</strong><br/>
-            Only the registered practitioner account can access this area.
-            Client bookings are made at <a href="/book/" style={{ color: "var(--teal)" }}>consultdrfat.com/book</a>.
-          </p>
-        </div>
-        <div style={{ fontSize: 52, marginBottom: 16 }}>👨‍⚕️</div>
-        <h2>Practitioner Sign In</h2>
-        <p>Sign in with the practitioner Google account to manage your practice, availability, and bookings.</p>
-        <button className="btn btn-primary btn-lg" style={{ marginTop: 8 }} onClick={() => signIn()}>
-          🔒 Continue with Google
-        </button>
-        <p style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 12 }}>
-          We use your Google account to verify your practitioner identity and keep your session secure.
-        </p>
-      </div>
-    </div>
-  );
+  if (!user) return <SignInForm />;
 
   if (role !== "practitioner") return (
     <div className="center" style={{ minHeight: "100vh" }}>
