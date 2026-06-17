@@ -82,7 +82,7 @@ export default function AdminPage() {
         <BrandNav onSignOut={signOut} />
 
         {/* Summary bar */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, margin: "20px 0" }}>
+        <div className="admin-summary-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, margin: "20px 0" }}>
           {[
             { icon: "📅", val: bookings.filter(b => b.status === "paid").length, label: "Confirmed" },
             { icon: "⏳", val: bookings.filter(b => b.status === "held").length, label: "Pending Payment" },

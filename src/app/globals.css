@@ -935,28 +935,50 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   /* Admin */
   .adminbar { gap: 6px; }
   .adminbar .tabbtn { padding: 7px 13px; font-size: 12.5px; }
-}
 
-
-  /* Sign-in card mobile */
+  /* Sign-in card */
   .signin-card { padding: 28px 20px 24px; border-radius: 18px; }
   .signin-page { padding: 16px 12px; }
-  
-  /* Prevent any panel/grid overflow */
+
+  /* Booking page */
   .panel { padding: 16px; }
   .book-grid { margin: 12px 0 36px; }
   .page-head { padding: 20px 0 10px; }
-  
-  /* Calendar cells — smaller on mobile */
   .cal { gap: 3px; }
   .day { font-size: 11px; }
   .day .mon { font-size: 7px; }
-  
+
+  /* Admin page */
+  .card { padding: 16px; }
+  .rowflex { gap: 8px; }
+  .rowflex > div { width: 100%; }
+  .rowflex .btn { width: 100%; justify-content: center; }
+
+  /* Admin summary grid → 2 cols on mobile */
+  .admin-summary-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; margin: 14px 0 !important; }
+
   /* Session room */
-  .session-card, .overlay-card { max-width: 100%; margin: 0 8px; }
-  
-  /* Admin */
-  .p-dfta-wrap { padding: 0 12px; }
+  .room-top { padding: 10px 14px; }
+  .room-top .tag { font-size: 10px; padding: 3px 10px; }
+  .stage { padding: 16px 12px 30px; }
+  .stage h2 { font-size: 18px; }
+  .pane-h { padding: 12px 14px; }
+  .voice { padding: 18px 14px 14px; }
+  .timer { font-size: 40px; }
+  .orb { font-size: 30px; }
+  .controls { gap: 8px; }
+  .ctl { padding: 8px 14px; font-size: 12.5px; }
+  .chat { height: 220px; }
+  .dock { padding: 10px 14px; gap: 8px; }
+  .dbtn { padding: 6px 12px; font-size: 12px; }
+  .overlay { padding: 22px 16px; border-radius: 0; }
+  .overlay h3 { font-size: 17px; }
+  .overlay p { font-size: 13px; }
+  .ov-actions { gap: 8px; }
+  .obtn { padding: 9px 14px; font-size: 13px; }
+  .timeopts .mm { padding: 8px 12px; font-size: 13px; }
+}
+
 
 /* Small mobile */
 @media (max-width: 420px) {
@@ -972,3 +994,246 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .cta-band { padding: 26px 14px; }
   .btn-lg { padding: 14px 22px; font-size: 15px; }
 }
+
+/* ═══════════════════════════════════════════════════════
+   SESSION ROOM — Full CSS
+═══════════════════════════════════════════════════════ */
+.room-bg {
+  min-height: 100vh;
+  background: linear-gradient(150deg, var(--navy) 0%, #0a2f4a 60%, #0b3d3a 100%);
+  display: flex;
+  flex-direction: column;
+}
+.room-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.room-top .brand { display: flex; align-items: center; gap: 8px; }
+.room-top .tag {
+  font-size: 11.5px; font-weight: 600;
+  background: rgba(14,138,122,.25); border: 1px solid rgba(126,207,200,.3);
+  border-radius: 999px; padding: 4px 12px; color: #9FD8D3;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.stage {
+  flex: 1;
+  max-width: 860px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 28px 20px 40px;
+}
+.stage h2 {
+  color: #fff;
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.stage .sub {
+  color: rgba(255,255,255,.55);
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+.pane {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+}
+.pane-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.who .avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.who .avatar.dr { background: linear-gradient(135deg, var(--teal), var(--sky)); }
+.who .avatar.cl { background: linear-gradient(135deg, var(--gold), #e0a840); }
+.who .nm { font-size: 14px; font-weight: 700; color: #fff; }
+.who .role { font-size: 11.5px; color: rgba(255,255,255,.5); margin-top: 1px; }
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,.55);
+}
+.led {
+  display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #4CC5BB;
+  box-shadow: 0 0 6px #4CC5BB;
+  flex-shrink: 0;
+  animation: pulse 2s infinite;
+}
+.led.off {
+  background: rgba(255,255,255,.25);
+  box-shadow: none;
+  animation: none;
+}
+.voice {
+  padding: 24px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.timer {
+  font-size: 52px;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  font-family: var(--font-pjs), monospace;
+  line-height: 1;
+}
+.timer.warn { color: #F5D08A; }
+.timer.crit { color: #F87171; animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0.4; } }
+.tl {
+  font-size: 12px;
+  color: rgba(255,255,255,.45);
+  margin: 5px 0 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.orb {
+  font-size: 38px;
+  margin-bottom: 8px;
+  transition: transform 0.08s;
+  filter: drop-shadow(0 4px 12px rgba(14,138,122,.4));
+}
+.vn {
+  font-size: 12.5px;
+  color: rgba(255,255,255,.45);
+  margin-bottom: 18px;
+}
+.controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1.5px solid rgba(255,255,255,.25);
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.85);
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.ctl:hover { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.45); }
+.ctl.muted { background: rgba(248,113,113,.15); border-color: rgba(248,113,113,.4); color: #F87171; }
+.ctl.danger { background: rgba(192,57,43,.2); border-color: rgba(192,57,43,.45); color: #F87171; }
+.ctl.danger:hover { background: rgba(192,57,43,.35); }
+.knob { font-size: 16px; }
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 260px;
+}
+.msgs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.15) transparent;
+}
+.msg {
+  max-width: 72%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.msg.mine {
+  background: var(--teal);
+  color: #fff;
+  align-self: flex-end;
+  border-radius: 12px 12px 3px 12px;
+}
+.msg.theirs {
+  background: rgba(255,255,255,.1);
+  color: rgba(255,255,255,.9);
+  align-self: flex-start;
+  border-radius: 12px 12px 12px 3px;
+}
+.msg.system {
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.45);
+  align-self: center;
+  font-size: 11.5px;
+  text-align: center;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-style: italic;
+}
+.num { font-family: var(--font-pjs), monospace; }
+
+/* ── Admin page extra styles ── */
+.card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 14px;
+}
+.card:hover { box-shadow: var(--shadow-md); }
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.list-row:last-of-type { border-bottom: none; }
+.del {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+  background: var(--red-soft);
+  border: 1px solid rgba(192,57,43,.2);
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.del:hover { background: rgba(192,57,43,.15); }
+.lab {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 4px;
+}
+

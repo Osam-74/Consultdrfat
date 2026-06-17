@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
   GoogleAuthProvider,
-  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signInWithEmailAndPassword,
@@ -13,20 +12,40 @@ import {
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
+  browserLocalPersistence,
+  setPersistence,
 } from "firebase/auth";
 import { auth, PRACTITIONER_UID } from "./firebase";
 import { Role } from "./types";
 
-// ── Google OAuth via Firebase signInWithPopup → fallback to signInWithRedirect ──
+// ── Google OAuth via signInWithRedirect ───────────────────────────────────────
 //
-// We use Firebase's own OAuth flow (popup first, redirect fallback).
-// authDomain is set to "consultdrfat.firebaseapp.com" in firebase.ts.
-// Make sure the following are set in Firebase Console → Authentication →
-// Sign-in method → Google → Web SDK configuration:
-//   • Authorized domains includes your Vercel URL (consultdrfat.vercel.app)
-// And in Google Cloud Console → APIs → Credentials → OAuth 2.0 Web Client:
-//   • Authorized JavaScript origins: https://consultdrfat.vercel.app
-//   • Authorized redirect URIs: https://consultdrfat.firebaseapp.com/__/auth/handler
+// We use Firebase's signInWithRedirect (not popup) for all browsers.
+//
+// WHY NOT POPUP:
+//   signInWithPopup opens a hidden iframe to consultdrfat.firebaseapp.com for
+//   a "silent" token check before opening the popup. Firefox's Enhanced
+//   Tracking Protection (ETP) blocks this cross-site iframe → NS_ERROR_NET_TIMEOUT.
+//
+// WHY NOT CUSTOM OAUTH (implicit flow):
+//   The id_token returned by Google's implicit flow must have its 'aud' (audience)
+//   match a client ID that is registered inside your Firebase project. The custom
+//   flow used a different client ID than Firebase's auto-generated Web Client.
+//
+// SOLUTION: signInWithRedirect with getRedirectResult
+//   - Full page redirect to accounts.google.com — no iframes, no popups.
+//   - On return, getRedirectResult() retrieves the signed-in user.
+//   - Firebase manages the token exchange internally with the correct client ID.
+//
+// REQUIRED SETUP (one-time, already done):
+//   Firebase Console → Authentication → Settings → Authorized domains:
+//     ✓ consultdrfat.vercel.app
+//   Firebase Console → Authentication → Sign-in method → Google: Enabled
+
+const provider = new GoogleAuthProvider();
+provider.addScope("email");
+provider.addScope("profile");
+provider.setCustomParameters({ prompt: "select_account" });
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -34,43 +53,57 @@ interface AuthState {
   user: User | null;
   role: Role | null;
   loading: boolean;
+  googleLoading: boolean;
   signInEmail:   (email: string, password: string) => Promise<void>;
   signUpEmail:   (email: string, password: string, name: string) => Promise<void>;
-  signInGoogle:  () => void;
+  signInGoogle:  () => Promise<void>;
   signOut:       () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
 
 const Ctx = createContext<AuthState>({
-  user: null, role: null, loading: true,
+  user: null, role: null, loading: true, googleLoading: false,
   signInEmail:   async () => {},
   signUpEmail:   async () => {},
-  signInGoogle:  () => {},
+  signInGoogle:  async () => {},
   signOut:       async () => {},
   resetPassword: async () => {},
 });
 
-function ready() {
+function isReady() {
   return auth &&
     typeof (auth as unknown as { onAuthStateChanged?: unknown }).onAuthStateChanged === "function";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]       = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]             = useState<User | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
-    if (!ready()) { setLoading(false); return; }
+    if (!isReady()) { setLoading(false); return; }
 
-    // Handle redirect result (from signInWithRedirect fallback)
-    getRedirectResult(auth).then((result) => {
-      if (result?.user) {
-        setUser(result.user);
-      }
-    }).catch((err) => {
-      // Redirect result errors are non-fatal — user just needs to sign in again
-      console.warn("[getRedirectResult] error:", err?.code || err);
-    });
+    // Check if we just returned from a Google redirect
+    const wasRedirecting = sessionStorage.getItem("gauth_redirect") === "1";
+    if (wasRedirecting) {
+      setGoogleLoading(true);
+      sessionStorage.removeItem("gauth_redirect");
+    }
+
+    // Retrieve redirect result — works after signInWithRedirect returns
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setUser(result.user);
+        }
+      })
+      .catch((err) => {
+        // Non-fatal — log but don't block the app
+        console.warn("[getRedirectResult] error:", err?.code ?? err);
+      })
+      .finally(() => {
+        setGoogleLoading(false);
+      });
 
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -84,59 +117,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     : null;
 
   const signInEmail = async (email: string, password: string) => {
-    if (!ready()) return;
+    if (!isReady()) return;
+    await setPersistence(auth, browserLocalPersistence);
     await signInWithEmailAndPassword(auth, email, password);
   };
 
   const signUpEmail = async (email: string, password: string, name: string) => {
-    if (!ready()) return;
+    if (!isReady()) return;
+    await setPersistence(auth, browserLocalPersistence);
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
   };
 
   const signInGoogle = async () => {
-    if (!ready()) return;
-    const provider = new GoogleAuthProvider();
-    provider.addScope("email");
-    provider.addScope("profile");
-    provider.setCustomParameters({ prompt: "select_account" });
-
-    try {
-      // Try popup first (works in most browsers + desktop)
-      await signInWithPopup(auth, provider);
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? "";
-      // If popup is blocked or closed, fall back to redirect
-      if (
-        code === "auth/popup-blocked" ||
-        code === "auth/popup-closed-by-user" ||
-        code === "auth/cancelled-popup-request" ||
-        code === "auth/operation-not-supported-in-this-environment"
-      ) {
-        try {
-          await signInWithRedirect(auth, provider);
-        } catch (redirectErr) {
-          console.error("[signInGoogle] redirect also failed:", redirectErr);
-          throw redirectErr;
-        }
-      } else {
-        throw err;
-      }
-    }
+    if (!isReady()) return;
+    await setPersistence(auth, browserLocalPersistence);
+    // Mark that we're about to redirect so we can show a loading state on return
+    sessionStorage.setItem("gauth_redirect", "1");
+    // Full-page redirect — no iframe, no popup, works in Firefox ETP
+    await signInWithRedirect(auth, provider);
   };
 
   const signOut = async () => {
-    if (!ready()) return;
+    if (!isReady()) return;
     await fbSignOut(auth);
   };
 
   const resetPassword = async (email: string) => {
-    if (!ready()) return;
+    if (!isReady()) return;
     await sendPasswordResetEmail(auth, email);
   };
 
   return (
-    <Ctx.Provider value={{ user, role, loading, signInEmail, signUpEmail, signInGoogle, signOut, resetPassword }}>
+    <Ctx.Provider value={{ user, role, loading, googleLoading, signInEmail, signUpEmail, signInGoogle, signOut, resetPassword }}>
       {children}
     </Ctx.Provider>
   );

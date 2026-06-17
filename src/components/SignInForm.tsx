@@ -32,7 +32,7 @@ interface Props {
 }
 
 export default function SignInForm({ title = "Sign In", subtitle = "Enter your credentials to continue." }: Props) {
-  const { signInEmail, signUpEmail, signInGoogle, resetPassword } = useAuth();
+  const { signInEmail, signUpEmail, signInGoogle, resetPassword, googleLoading } = useAuth();
   const [mode, setMode]           = useState<Mode>("signin");
   const [name, setName]           = useState("");
   const [email, setEmail]         = useState("");
@@ -54,11 +54,8 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
       case "auth/too-many-requests":     return "Too many attempts — try again later.";
       case "auth/user-disabled":         return "This account has been disabled.";
       case "auth/network-request-failed":return "Network error — check your connection.";
-      case "auth/popup-blocked":         return "Pop-up blocked. Trying redirect instead…";
-      case "auth/popup-closed-by-user":
-      case "auth/cancelled-popup-request": return "Sign-in was cancelled.";
-      case "auth/unauthorized-domain":   return "This domain is not authorised in Firebase.";
-      case "auth/operation-not-allowed": return "Google sign-in is not enabled in Firebase console.";
+      case "auth/unauthorized-domain":   return "This domain is not authorised in Firebase. Contact support.";
+      case "auth/operation-not-allowed": return "Google sign-in is not enabled. Contact support.";
       default:                           return `Sign-in failed (${code || "unknown"}). Please try again.`;
     }
   };
@@ -95,13 +92,36 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     setBusy(true);
     try {
       await signInGoogle();
+      // Page will redirect to Google — no need to reset busy
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
+      console.error("[Google auth]", code, err);
       setError(friendly(code));
-    } finally {
       setBusy(false);
     }
   };
+
+  // If we just returned from the Google redirect, show a loading screen
+  if (googleLoading) {
+    return (
+      <div className="signin-page">
+        <div className="signin-card" style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 44, marginBottom: 16 }}>🩺</div>
+          <h2 style={{ marginBottom: 8 }}>Signing you in…</h2>
+          <p className="subtitle">Completing Google sign-in, please wait.</p>
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "center" }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: "50%",
+              border: "3px solid var(--teal)",
+              borderTopColor: "transparent",
+              animation: "spin 0.7s linear infinite",
+            }} />
+          </div>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
 
   const modeTitle    = mode === "register" ? "Create Account" : mode === "reset" ? "Reset Password" : title;
   const modeSubtitle = mode === "register" ? "Create your patient account to book consultations." : mode === "reset" ? "Enter your email and we'll send a reset link." : subtitle;
@@ -151,8 +171,19 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
         {!resetSent && (mode === "signin" || mode === "register") && (
           <>
             {/* Google button */}
-            <button className="btn-google" onClick={handleGoogle} disabled={busy} type="button">
-              <GoogleLogo /><span>Continue with Google</span>
+            <button className="btn-google" onClick={handleGoogle} disabled={busy || googleLoading} type="button">
+              {busy ? (
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    display: "inline-block", width: 16, height: 16, borderRadius: "50%",
+                    border: "2px solid #4285F4", borderTopColor: "transparent",
+                    animation: "spin 0.7s linear infinite",
+                  }} />
+                  Redirecting to Google…
+                </span>
+              ) : (
+                <><GoogleLogo /><span>Continue with Google</span></>
+              )}
             </button>
 
             <div className="divider-or">or {mode === "register" ? "register" : "sign in"} with email</div>
@@ -214,11 +245,11 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
                 {mode === "signin" ? (
                   <>
                     <button type="button" onClick={() => go("reset")}>Forgot password?</button>
-                    <span style={{ margin: "0 8px", color: "var(--line)" }}>·</span>
+                    <span style={{ margin: "0 8px", color: "var(--line)" }}>|</span>
                     <button type="button" onClick={() => go("register")}>Create account</button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => go("signin")}>← Back to Sign In</button>
+                  <button type="button" onClick={() => go("signin")}>Already have an account? Sign in</button>
                 )}
               </div>
             </form>
