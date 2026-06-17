@@ -3,6 +3,10 @@
   "outputDirectory": "out",
   "installCommand": "npm install --legacy-peer-deps",
   "framework": null,
+  "redirects": [
+    { "source": "/admin", "destination": "/p-dfta", "permanent": true },
+    { "source": "/admin-portal", "destination": "/p-dfta", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/$1" }
   ],

@@ -4,6 +4,8 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import {
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut as fbSignOut,
@@ -41,6 +43,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isReady()) { setLoading(false); return; }
+
+    // Handle redirect result on page load (after signInWithRedirect)
+    getRedirectResult(auth).then((result) => {
+      if (result?.user) setUser(result.user);
+    }).catch((err) => {
+      console.warn("Redirect sign-in error:", err);
+    });
+
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -61,7 +71,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isReady()) return;
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
-    await signInWithPopup(auth, provider);
+    try {
+      // Try popup first
+      await signInWithPopup(auth, provider);
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      // If popup was blocked or failed, fall back to redirect
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request" ||
+        code === "auth/operation-not-supported-in-this-environment"
+      ) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw err;
+    }
   };
 
   const signOut = async () => {
