@@ -5,8 +5,7 @@ import { useAuth } from "@/lib/auth";
 
 const EyeIcon = ({ open }: { open: boolean }) => open ? (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-    <circle cx="12" cy="12" r="3"/>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
   </svg>
 ) : (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -25,98 +24,120 @@ const GoogleLogo = () => (
   </svg>
 );
 
+type Mode = "signin" | "register" | "reset";
+
 interface Props {
   title?: string;
   subtitle?: string;
 }
 
 export default function SignInForm({ title = "Sign In", subtitle = "Enter your credentials to continue." }: Props) {
-  const { signInEmail, signInGoogle, resetPassword } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPw, setShowPw] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { signInEmail, signUpEmail, signInGoogle, resetPassword, redirecting } = useAuth();
+  const [mode, setMode]           = useState<Mode>("signin");
+  const [name, setName]           = useState("");
+  const [email, setEmail]         = useState("");
+  const [password, setPassword]   = useState("");
+  const [confirm, setConfirm]     = useState("");
+  const [showPw, setShowPw]       = useState(false);
+  const [busy, setBusy]           = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState<"signin" | "reset">("signin");
+  const [error, setError]         = useState("");
   const [resetSent, setResetSent] = useState(false);
 
-  const friendlyError = (code: string) => {
+  const friendly = (code: string) => {
     switch (code) {
       case "auth/user-not-found":
       case "auth/wrong-password":
-      case "auth/invalid-credential":       return "Incorrect email or password.";
-      case "auth/too-many-requests":         return "Too many attempts — try again later or reset your password.";
-      case "auth/user-disabled":             return "This account has been disabled.";
+      case "auth/invalid-credential":    return "Incorrect email or password.";
+      case "auth/email-already-in-use":  return "An account with this email already exists. Sign in instead.";
+      case "auth/weak-password":         return "Password must be at least 6 characters.";
+      case "auth/invalid-email":         return "Please enter a valid email address.";
+      case "auth/too-many-requests":     return "Too many attempts — try again later.";
+      case "auth/user-disabled":         return "This account has been disabled.";
+      case "auth/network-request-failed":return "Network error — check your connection.";
+      case "auth/popup-blocked":         return "Pop-up blocked. Trying redirect instead…";
       case "auth/popup-closed-by-user":
-      case "auth/cancelled-popup-request":   return "Sign-in cancelled (popup). Please try again.";
-      case "auth/popup-blocked":             return "Pop-up blocked by your browser. Please allow pop-ups for this site and try again.";
-      case "auth/network-request-failed":    return "Network error — check your connection and try again.";
-      case "auth/unauthorized-domain":       return "This domain is not authorised. Please contact support.";
-      case "auth/operation-not-allowed":     return "Google sign-in is not enabled. Please contact support.";
-      default:                               return `Sign-in failed (${code || "unknown"}). Please try again.`;
+      case "auth/cancelled-popup-request": return "Sign-in was cancelled.";
+      case "auth/unauthorized-domain":   return "This domain is not authorised in Firebase.";
+      case "auth/operation-not-allowed": return "Google sign-in is not enabled in Firebase console.";
+      default:                           return `Sign-in failed (${code || "unknown"}). Please try again.`;
     }
   };
 
+  const go = (m: Mode) => { setMode(m); setError(""); setResetSent(false); };
+
   const handleEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(""); setBusy(true);
+    e.preventDefault(); setError(""); setBusy(true);
     try {
-      await signInEmail(email, password);
+      if (mode === "register") {
+        if (password !== confirm) { setError("Passwords do not match."); setBusy(false); return; }
+        await signUpEmail(email, password, name);
+      } else {
+        await signInEmail(email, password);
+      }
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
-      console.error("[Email Sign-In]", code, err);
-      setError(friendlyError(code));
+      console.error("[Email auth]", code, err);
+      setError(friendly(code));
+    } finally { setBusy(false); }
+  };
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try { await resetPassword(email); setResetSent(true); }
+    catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      setError(code === "auth/user-not-found" ? "No account with that email." : "Could not send reset email.");
     } finally { setBusy(false); }
   };
 
   const handleGoogle = async () => {
     setError(""); setGoogleBusy(true);
-    try {
-      await signInGoogle();
-    } catch (err: unknown) {
+    try { await signInGoogle(); }
+    catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
-      console.error("[Google Sign-In]", code, err);
+      console.error("[Google auth]", code, err);
       if (code !== "auth/cancelled-popup-request" && code !== "auth/popup-closed-by-user") {
-        setError(friendlyError(code));
+        setError(friendly(code));
       }
     } finally { setGoogleBusy(false); }
   };
 
-  const handleReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(""); setBusy(true);
-    try {
-      await resetPassword(email);
-      setResetSent(true);
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? "";
-      setError(code === "auth/user-not-found" ? "No account found with that email." : "Could not send reset email. Please try again.");
-    } finally { setBusy(false); }
-  };
+  const modeTitle    = mode === "register" ? "Create Account" : mode === "reset" ? "Reset Password" : title;
+  const modeSubtitle = mode === "register" ? "Create your patient account to book consultations." : mode === "reset" ? "Enter your email and we'll send a reset link." : subtitle;
 
   return (
     <div className="signin-page">
       <div className="signin-card">
-
         <div className="brand-badge">
           <div className="icon">🩺</div>
-          <h2>{mode === "reset" ? "Reset Password" : title}</h2>
-          <p className="subtitle">{mode === "reset" ? "Enter your email and we'll send a reset link." : subtitle}</p>
+          <h2>{modeTitle}</h2>
+          <p className="subtitle">{modeSubtitle}</p>
         </div>
 
-        {resetSent ? (
+        {/* ── Redirecting overlay ── */}
+        {redirecting && (
+          <div style={{ textAlign: "center", padding: "24px 0" }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>🔄</div>
+            <p style={{ color: "var(--navy)", fontWeight: 600 }}>Redirecting to Google…</p>
+            <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>You'll be brought back here after signing in.</p>
+          </div>
+        )}
+
+        {/* ── Reset sent ── */}
+        {!redirecting && resetSent && (
           <div className="signin-success">
             <div className="success-icon">📬</div>
             <p style={{ fontWeight: 700, color: "var(--navy)", marginBottom: 6 }}>Check your inbox</p>
             <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20, lineHeight: 1.5 }}>
               A password reset link was sent to <strong>{email}</strong>.
             </p>
-            <button className="btn btn-ghost btn-sm" onClick={() => { setMode("signin"); setResetSent(false); }}>
-              ← Back to Sign In
-            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => go("signin")}>← Back to Sign In</button>
           </div>
-        ) : mode === "reset" ? (
+        )}
+
+        {/* ── Reset form ── */}
+        {!redirecting && !resetSent && mode === "reset" && (
           <form onSubmit={handleReset}>
             <div className="signin-field">
               <label>Email address</label>
@@ -130,22 +151,35 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
               {busy ? "Sending…" : "📧 Send Reset Link"}
             </button>
             <div className="signin-footer">
-              <button type="button" onClick={() => { setMode("signin"); setError(""); }}>← Back to Sign In</button>
+              <button type="button" onClick={() => go("signin")}>← Back to Sign In</button>
             </div>
           </form>
-        ) : (
+        )}
+
+        {/* ── Sign In / Register ── */}
+        {!redirecting && !resetSent && (mode === "signin" || mode === "register") && (
           <>
+            {/* Google button */}
             <button className="btn-google" onClick={handleGoogle} disabled={googleBusy || busy} type="button">
-              {googleBusy ? (
-                <span style={{ fontSize: 13 }}>Redirecting to Google…</span>
-              ) : (
-                <><GoogleLogo /><span>Continue with Google</span></>
-              )}
+              {googleBusy
+                ? <span style={{ fontSize: 13 }}>Connecting to Google…</span>
+                : <><GoogleLogo /><span>Continue with Google</span></>
+              }
             </button>
 
-            <div className="divider-or">or sign in with email</div>
+            <div className="divider-or">or {mode === "register" ? "register" : "sign in"} with email</div>
 
             <form onSubmit={handleEmail}>
+              {mode === "register" && (
+                <div className="signin-field">
+                  <label>Full name</label>
+                  <div className="input-wrap">
+                    <input type="text" required autoComplete="name" value={name}
+                      onChange={e => setName(e.target.value)} placeholder="Your full name" />
+                  </div>
+                </div>
+              )}
+
               <div className="signin-field">
                 <label>Email address</label>
                 <div className="input-wrap">
@@ -157,25 +191,47 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
               <div className="signin-field">
                 <label>Password</label>
                 <div className="input-wrap">
-                  <input type={showPw ? "text" : "password"} required autoComplete="current-password"
-                    value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-                  <button type="button" className="eye-btn" onClick={() => setShowPw(v => !v)} tabIndex={-1}
-                    aria-label={showPw ? "Hide password" : "Show password"}>
+                  <input type={showPw ? "text" : "password"} required
+                    autoComplete={mode === "register" ? "new-password" : "current-password"}
+                    value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder={mode === "register" ? "Min 6 characters" : "••••••••"}
+                    minLength={mode === "register" ? 6 : undefined} />
+                  <button type="button" className="eye-btn" onClick={() => setShowPw(v => !v)}
+                    tabIndex={-1} aria-label={showPw ? "Hide password" : "Show password"}>
                     <EyeIcon open={showPw} />
                   </button>
                 </div>
               </div>
 
+              {mode === "register" && (
+                <div className="signin-field">
+                  <label>Confirm password</label>
+                  <div className="input-wrap">
+                    <input type={showPw ? "text" : "password"} required autoComplete="new-password"
+                      value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat password" />
+                  </div>
+                </div>
+              )}
+
               {error && <div className="signin-error">⚠️ {error}</div>}
 
               <button type="submit" className="btn btn-primary btn-signin" disabled={busy || googleBusy}>
-                {busy ? "Signing in…" : "🔒 Sign In"}
+                {busy
+                  ? (mode === "register" ? "Creating account…" : "Signing in…")
+                  : (mode === "register" ? "🩺 Create Account" : "🔒 Sign In")
+                }
               </button>
 
               <div className="signin-footer">
-                <button type="button" onClick={() => { setMode("reset"); setError(""); }}>
-                  Forgot your password?
-                </button>
+                {mode === "signin" ? (
+                  <>
+                    <button type="button" onClick={() => go("reset")}>Forgot password?</button>
+                    <span style={{ margin: "0 8px", color: "var(--line)" }}>·</span>
+                    <button type="button" onClick={() => go("register")}>Create account</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => go("signin")}>← Back to Sign In</button>
+                )}
               </div>
             </form>
           </>

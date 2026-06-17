@@ -1,10 +1,10 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getAuth, Auth } from "firebase/auth";
+import { getAuth, Auth, initializeAuth, browserLocalPersistence, browserPopupRedirectResolver } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
-// authDomain MUST always be the Firebase project domain (consultdrfat.firebaseapp.com)
-// NOT the Vercel/custom domain. Firebase hosts /__/auth/iframe and /__/auth/handler
-// at this domain — if you set it to your custom domain those routes 404 and OAuth breaks.
+// authDomain must always be the Firebase project's own domain.
+// Firebase hosts /__/auth/handler and /__/auth/iframe there.
+// This is independent of where your app itself is hosted (Vercel, Cloudflare, etc.)
 const config = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY             || "placeholder-build-key",
   authDomain:        "consultdrfat.firebaseapp.com",
@@ -14,22 +14,31 @@ const config = {
   appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID              || "1:101708230797:web:698b771ef26868be5f32c4",
 };
 
-function safeInitApp(): FirebaseApp {
-  return getApps().length ? getApp() : initializeApp(config);
+let _app: FirebaseApp;
+let _auth: Auth;
+let _db: Firestore;
+
+function safeInit() {
+  if (typeof window === "undefined") return;
+  if (_app) return;
+  _app = getApps().length ? getApp() : initializeApp(config);
+  // initializeAuth with explicit persistence + resolver avoids the
+  // "auth/internal-error" that can happen when Firebase auto-detects environment
+  try {
+    _auth = initializeAuth(_app, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+  } catch {
+    // Already initialized (e.g. HMR) — just get the existing instance
+    _auth = getAuth(_app);
+  }
+  _db = getFirestore(_app);
 }
 
-export const app: FirebaseApp = typeof window === "undefined"
-  ? ({} as FirebaseApp)
-  : safeInitApp();
+if (typeof window !== "undefined") safeInit();
 
-export const auth: Auth = typeof window === "undefined"
-  ? ({} as Auth)
-  : getAuth(safeInitApp());
-
-export const db: Firestore = typeof window === "undefined"
-  ? ({} as Firestore)
-  : getFirestore(safeInitApp());
-
+export { _app as app, _auth as auth, _db as db };
 export const PRACTITIONER_UID    = process.env.NEXT_PUBLIC_PRACTITIONER_UID    || "";
 export const PAYSTACK_PUBLIC_KEY  = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "";
 export const API_BASE             = process.env.NEXT_PUBLIC_API_BASE            || "";
