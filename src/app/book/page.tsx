@@ -76,20 +76,32 @@ export default function BookPage() {
 
   const pay = () => {
     if (!selSlot || !user || !consent) return;
+
+    // Guard: require a valid email before creating any booking record
+    const email = user.email ?? "";
+    if (!email || !email.includes("@")) {
+      alert("Your Google account did not provide an email address. Please sign out and sign in again.");
+      return;
+    }
+
     setStatus("paying");
+
+    let createdId: string | null = null;
+
     createBooking({
       clientId: user.uid,
       clientName: user.displayName ?? "Client",
-      clientEmail: user.email ?? "",
+      clientEmail: email,
       slotStart: Timestamp.fromDate(selSlot.start),
       slotEnd: Timestamp.fromDate(selSlot.end),
       status: "held",
       topic,
       amountNGN: settings.priceNGN,
     }).then((id) => {
+      createdId = id;
       setBookingId(id);
       payNGN({
-        email: user.email ?? "",
+        email,
         amountNGN: settings.priceNGN,
         metadata: { bookingId: id, kind: "session" },
         onSuccess: async (ref) => {
@@ -97,7 +109,22 @@ export default function BookPage() {
           await markBookingPaid(id, ref);
           setStatus("booked");
         },
-        onCancel: () => setStatus("idle"),
+        onCancel: () => {
+          // User closed the popup — cancel the held booking so the slot is freed
+          if (createdId) {
+            import("@/lib/db").then(({ cancelBooking }) => cancelBooking(createdId!).catch(() => {}));
+          }
+          setStatus("idle");
+        },
+        onError: (err) => {
+          console.error("Paystack error:", err);
+          // Cancel held booking on error so the slot isn't stuck
+          if (createdId) {
+            import("@/lib/db").then(({ cancelBooking }) => cancelBooking(createdId!).catch(() => {}));
+          }
+          setStatus("idle");
+          alert("Payment could not be completed. Your slot has been released. Please try again.");
+        },
       });
     }).catch(() => setStatus("idle"));
   };

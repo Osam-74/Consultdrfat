@@ -97,6 +97,9 @@ export async function createBooking(b: Omit<Booking, "id" | "createdAt">): Promi
 export async function markBookingPaid(id: string, paystackRef: string) {
   await updateDoc(doc(db, "bookings", id), { status: "paid", paystackRef });
 }
+export async function cancelBooking(id: string) {
+  await updateDoc(doc(db, "bookings", id), { status: "cancelled" });
+}
 export function watchBookings(cb: (rows: Booking[]) => void) {
   const q = query(collection(db, "bookings"), orderBy("slotStart", "asc"));
   return onSnapshot(q, (snap) =>
