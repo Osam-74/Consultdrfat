@@ -2,7 +2,8 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
   onSnapshot, query, where, orderBy, Timestamp, serverTimestamp,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "./firebase";
 import {
   PracticeSettings, DEFAULT_SETTINGS, AvailabilityTemplate, AvailabilityException,
   Booking, SessionDoc, Message, Offer, Role,
@@ -163,8 +164,30 @@ export function watchMessages(bookingId: string, cb: (m: Message[]) => void) {
     cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Message, "id">) })))
   );
 }
-export async function sendMessage(bookingId: string, from: Role | "system", text: string) {
-  await addDoc(collection(db, "sessions", bookingId, "messages"), { from, text, t: Date.now() });
+export async function sendMessage(
+  bookingId: string,
+  from: Role | "system",
+  text: string,
+  file?: { url: string; type: string; name: string }
+) {
+  const payload: Record<string, unknown> = { from, text, t: Date.now() };
+  if (file) {
+    payload.fileUrl  = file.url;
+    payload.fileType = file.type;
+    payload.fileName = file.name;
+  }
+  await addDoc(collection(db, "sessions", bookingId, "messages"), payload);
+}
+
+export async function uploadSessionFile(
+  bookingId: string,
+  file: File
+): Promise<{ url: string; type: string; name: string }> {
+  const path = `session-files/${bookingId}/${Date.now()}_${file.name}`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file, { contentType: file.type });
+  const url = await getDownloadURL(ref);
+  return { url, type: file.type, name: file.name };
 }
 
 /* ─────────────────────── Email Notifications ───────────────────────

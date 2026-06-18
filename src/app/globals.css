@@ -2042,3 +2042,108 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .brow-meta { align-items: flex-start; }
   .booking-row-detail { padding-left: 14px; }
 }
+
+/* ═══════════════════════════════════════════════════
+   FIXES — June 2026
+═══════════════════════════════════════════════════ */
+
+/* 1. Dashboard stats — 3 columns */
+.dash-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 20px 0;
+}
+@media (max-width: 480px) {
+  .dash-stats-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .dash-stats-grid .stat-card { padding: 12px 10px; }
+  .dash-stats-grid .stat-val { font-size: 18px; }
+}
+
+/* 2. Practitioner calendar — no overflow on mobile */
+@media (max-width: 768px) {
+  .avail-two-col {
+    flex-direction: column;
+    width: 100%;
+    overflow: hidden;
+  }
+  .avail-two-col > .card {
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .adm-cal {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    width: 100%;
+    overflow: hidden;
+  }
+  .adm-day {
+    min-width: 0;
+    aspect-ratio: 1;
+  }
+  .adm-day-num { font-size: 10px; }
+}
+@media (max-width: 390px) {
+  .adm-cal { gap: 1px; }
+  .adm-day-num { font-size: 9px; }
+  .adm-dow { font-size: 8px; padding: 2px 0; }
+}
+
+/* 3. Waiting Room Widget (collapsible, inside Bookings tab) */
+.wr-widget {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.wr-widget-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 18px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+.wr-widget-toggle:hover { background: var(--paper); }
+.wr-widget-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.wr-widget.open .wr-widget-toggle { background: var(--paper); }
+
+/* 4. Session chat — image/file rendering */
+.msg-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.msg-img {
+  max-width: 220px;
+  max-height: 200px;
+  width: 100%;
+  border-radius: 10px;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  border: 1.5px solid rgba(255,255,255,.2);
+}
+.msg-dl-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,.9);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.msg.theirs .msg-dl-link { color: rgba(255,255,255,.85); }
+.msg.mine .msg-dl-link   { color: rgba(255,255,255,.95); }

@@ -115,6 +115,7 @@ export default function AdminPage() {
   // Waiting room
   const [waitingRoom, setWaitingRoom] = useState<Booking[]>([]);
   const [waitingSessions, setWaitingSessions] = useState<Record<string, string>>({});
+  const [waitingRoomOpen, setWaitingRoomOpen] = useState(false);
 
   // Availability calendar
   const today = useMemo(() => { const d=new Date(); d.setHours(0,0,0,0); return d; }, []);
@@ -227,49 +228,17 @@ export default function AdminPage() {
       <div className="wrap">
         <BrandNav onSignOut={signOut} />
 
-        {/* ── WAITING ROOM BANNER ── */}
-        {waitingRoom.length > 0 && (
-          <div className="waiting-room-section">
-            <div className="wr-header">
-              <div className="wr-pulse-dot" />
-              <span className="wr-title">🚪 Waiting Room</span>
-              <span className="wr-count">{waitingRoom.length} patient{waitingRoom.length > 1 ? "s" : ""}</span>
-            </div>
-            <div className="wr-list">
-              {waitingRoom.map(b => {
-                const d = b.slotStart.toDate();
-                const sessStatus = waitingSessions[b.id] ?? "none";
-                const isLiveAlready = sessStatus === "live";
-                return (
-                  <div key={b.id} className="wr-card">
-                    <div className="wr-avatar">{b.clientName?.[0] ?? "?"}</div>
-                    <div className="wr-info">
-                      <div className="wr-name">{b.clientName}</div>
-                      <div className="wr-slot">📅 {fmtDT(d)}</div>
-                      {b.topic && <div className="wr-topic">💬 {b.topic}</div>}
-                    </div>
-                    <div className="wr-actions">
-                      {isLiveAlready && <span className="wr-live-badge">● Live</span>}
-                      <Link href={`/session/?id=${b.id}&role=practitioner`} className="btn btn-sm btn-primary">
-                        {isLiveAlready ? "Rejoin" : "Start Session →"}
-                      </Link>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
-        {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:12,margin:"20px 0"}}>
+
+        {/* Stats — 3 cards: Confirmed, Earnings, Waiting Room */}
+        <div className="dash-stats-grid">
           {[
-            {val:stats.confirmed, label:"Confirmed", color:"var(--teal)"},
-            {val:stats.pending,   label:"Pending",   color:"var(--gold)"},
-            {val:ngn(stats.earnings), label:"Earnings", color:"var(--navy)"},
-            {val:waitingRoom.length,  label:"Waiting",  color:"var(--sky)"},
+            {val:stats.confirmed,     label:"Confirmed",    color:"var(--teal)",  icon:"✅"},
+            {val:ngn(stats.earnings), label:"Earnings",     color:"var(--navy)",  icon:"💰"},
+            {val:waitingRoom.length,  label:"Waiting Room", color:"var(--sky)",   icon:"🚪"},
           ].map(s=>(
             <div key={s.label} className="stat-card">
+              <div className="stat-icon">{s.icon}</div>
               <div className="stat-val" style={{color:s.color}}>{s.val}</div>
               <div className="stat-lbl">{s.label}</div>
             </div>
@@ -436,44 +405,95 @@ export default function AdminPage() {
 
         {/* ══ BOOKINGS ══ */}
         {tab==="bookings" && (
-          <div className="card">
-            <div className="card-header" style={{marginBottom:16}}>
-              <div>
-                <h3>📋 Bookings</h3>
-                <p className="card-sub">{stats.confirmed} confirmed · {stats.pending} pending · click a row to expand</p>
-              </div>
-              <div className="filter-pills">
-                {([
-                  {key:"upcoming", label:"📅 Upcoming"},
-                  {key:"past",     label:"🕐 Past"},
-                  {key:"pending",  label:"⏳ Pending"},
-                ] as const).map(f=>(
-                  <button key={f.key} className={"filter-pill"+(bookFilter===f.key?" active":"")} onClick={()=>setBookFilter(f.key)}>
-                    {f.label}
-                  </button>
-                ))}
-              </div>
+          <>
+            {/* ── Waiting Room Widget ── */}
+            <div className={"wr-widget" + (waitingRoomOpen ? " open" : "")}>
+              <button
+                className="wr-widget-toggle"
+                onClick={() => setWaitingRoomOpen(v => !v)}
+              >
+                <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+                  {waitingRoom.length > 0 && <div className="wr-pulse-dot" />}
+                  <span style={{fontWeight:700,fontSize:14}}>🚪 Waiting Room</span>
+                  {waitingRoom.length > 0 ? (
+                    <span className="wr-count">{waitingRoom.length} patient{waitingRoom.length!==1?"s":""}</span>
+                  ) : (
+                    <span style={{fontSize:12,color:"var(--muted)"}}>Empty</span>
+                  )}
+                </div>
+                <span style={{fontSize:13,color:"var(--muted-2)",transform:waitingRoomOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+              </button>
+              {waitingRoomOpen && (
+                <div className="wr-widget-body">
+                  {waitingRoom.length === 0 ? (
+                    <p style={{color:"var(--muted)",fontSize:13,textAlign:"center",padding:"12px 0"}}>No clients waiting right now.</p>
+                  ) : (
+                    <div className="wr-list">
+                      {waitingRoom.map(b => {
+                        const d = b.slotStart.toDate();
+                        const sessStatus = waitingSessions[b.id] ?? "none";
+                        const isLiveAlready = sessStatus === "live";
+                        return (
+                          <div key={b.id} className="wr-card">
+                            <div className="wr-avatar">{b.clientName?.[0] ?? "?"}</div>
+                            <div className="wr-info">
+                              <div className="wr-name">{b.clientName}</div>
+                              <div className="wr-slot">📅 {fmtDT(d)}</div>
+                              {b.topic && <div className="wr-topic">💬 {b.topic}</div>}
+                            </div>
+                            <div className="wr-actions">
+                              {isLiveAlready && <span className="wr-live-badge">● Live</span>}
+                              <Link href={`/session/?id=${b.id}&role=practitioner`} className="btn btn-sm btn-primary">
+                                {isLiveAlready ? "Rejoin" : "Start Session →"}
+                              </Link>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {filteredBookings.length === 0 ? (
-              <div className="empty-state">
-                <div style={{fontSize:36,marginBottom:8}}>📭</div>
-                <p style={{color:"var(--muted)"}}>No bookings in this category.</p>
+            <div className="card" style={{marginTop:0}}>
+              <div className="card-header" style={{marginBottom:16}}>
+                <div>
+                  <h3>📋 Bookings</h3>
+                  <p className="card-sub">{stats.confirmed} confirmed · click a row to expand</p>
+                </div>
+                <div className="filter-pills">
+                  {([
+                    {key:"upcoming", label:"📅 Upcoming"},
+                    {key:"past",     label:"🕐 Past"},
+                  ] as const).map(f=>(
+                    <button key={f.key} className={"filter-pill"+(bookFilter===f.key?" active":"")} onClick={()=>setBookFilter(f.key)}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <div className="booking-compact-list">
-                {filteredBookings.map(b => (
-                  <BookingCard key={b.id} b={b} onArchive={handleArchive} />
-                ))}
-              </div>
-            )}
 
-            {bookFilter === "past" && (
-              <p style={{fontSize:12,color:"var(--muted)",marginTop:12,textAlign:"center"}}>
-                Tip: use the 🗄 Archive button on past bookings to keep your list tidy.
-              </p>
-            )}
-          </div>
+              {filteredBookings.length === 0 ? (
+                <div className="empty-state">
+                  <div style={{fontSize:36,marginBottom:8}}>📭</div>
+                  <p style={{color:"var(--muted)"}}>No bookings in this category.</p>
+                </div>
+              ) : (
+                <div className="booking-compact-list">
+                  {filteredBookings.map(b => (
+                    <BookingCard key={b.id} b={b} onArchive={handleArchive} />
+                  ))}
+                </div>
+              )}
+
+              {bookFilter === "past" && (
+                <p style={{fontSize:12,color:"var(--muted)",marginTop:12,textAlign:"center"}}>
+                  Tip: use the 🗄 Archive button on past bookings to keep your list tidy.
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         {/* ══ SETTINGS ══ */}

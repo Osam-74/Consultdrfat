@@ -82,4 +82,7 @@ export interface Message {
   from: Role | "system";
   text: string;
   t: number;
+  fileUrl?: string;    // download URL for shared files/images
+  fileType?: string;   // MIME type e.g. "image/png", "application/pdf"
+  fileName?: string;   // original filename
 }

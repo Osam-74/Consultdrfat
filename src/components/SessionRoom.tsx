@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   watchSession, watchMessages, ensureSession, startSession, completeSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
-  createDiscountCode, sendDiscountEmail, setAttachmentsEnabled,
+  createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
 } from "@/lib/db";
 import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
@@ -212,13 +212,13 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     if (file.size > 10 * 1024 * 1024) { alert("File must be under 10 MB."); return; }
     setUploading(true);
     try {
-      // Upload via Firebase Storage or convert to base64 for small files
-      // For now we notify via system message that a file was shared (practitioner reviews name)
-      await sendMessage(bookingId, role,
-        `📎 Shared a file: ${file.name} (${(file.size / 1024).toFixed(0)} KB)`
-      );
+      const uploaded = await uploadSessionFile(bookingId, file);
+      const isImage = file.type.startsWith("image/");
+      const label = isImage ? `🖼️ Shared an image: ${file.name}` : `📎 Shared a file: ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+      await sendMessage(bookingId, role, label, uploaded);
     } catch (err) {
       console.error("File share error:", err);
+      alert("Upload failed. Please try again.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -329,9 +329,49 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 .filter(m => !m.text.startsWith("CLIENT_META:")) // hide internal metadata msgs
                 .map((m) => {
                   const cls = m.from === "system" ? "system" : m.from === role ? "mine" : "theirs";
+                  const isImage = m.fileUrl && m.fileType?.startsWith("image/");
+                  const isDoc   = m.fileUrl && !isImage;
                   return (
                     <div key={m.id} className={"msg " + cls}>
-                      {m.text}
+                      {/* Render inline image if it's an image attachment */}
+                      {isImage && (
+                        <div className="msg-attachment">
+                          <a href={m.fileUrl} target="_blank" rel="noopener noreferrer">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={m.fileUrl}
+                              alt={m.fileName ?? "shared image"}
+                              className="msg-img"
+                            />
+                          </a>
+                          <a
+                            className="msg-dl-link"
+                            href={m.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={m.fileName}
+                          >
+                            ⬇ Download {m.fileName}
+                          </a>
+                        </div>
+                      )}
+                      {/* Render download link for docs/pdfs */}
+                      {isDoc && (
+                        <div className="msg-attachment">
+                          <a
+                            className="msg-dl-link"
+                            href={m.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={m.fileName}
+                          >
+                            📄 {m.fileName ?? "Download file"} ⬇
+                          </a>
+                        </div>
+                      )}
+                      {/* Always show the text label too (unless it's only an attachment) */}
+                      {(!isImage && !isDoc) && <span>{m.text}</span>}
+                      {(isImage || isDoc) && <span style={{fontSize:11,opacity:.65,display:"block",marginTop:3}}>{m.text.replace(/^[🖼️📎]+\s*/,"")}</span>}
                       {m.from !== "system" && (
                         <div className="t">{new Date(m.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                       )}
