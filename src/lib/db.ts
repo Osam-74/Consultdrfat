@@ -507,3 +507,54 @@ export async function getLiveSession(bookingId: string): Promise<SessionDoc | nu
   const s = snap.data() as SessionDoc;
   return s.status === "live" ? s : null;
 }
+
+/* ─────────────────────── Waiting Room / Archive ──────────────────────────
+   Practitioner can see who is "in the waiting room" = has a paid booking
+   whose slot is within the next 90 minutes and whose session is idle/not started.
+   Archive = mark a session as archived so it doesn't clutter the bookings list.
+──────────────────────────────────────────────────────────────────────────── */
+
+/** Watch all paid bookings whose slot starts within the next 90 min (waiting room) */
+export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
+  const now = Timestamp.now();
+  const soon = Timestamp.fromMillis(Date.now() + 90 * 60 * 1000);
+  const q = query(
+    collection(db, "bookings"),
+    where("status", "==", "paid"),
+    where("slotStart", ">=", now),
+    where("slotStart", "<=", soon),
+    orderBy("slotStart", "asc")
+  );
+  return onSnapshot(q, (snap) =>
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+  );
+}
+
+/** Archive a booking (soft-delete from active list) */
+export async function archiveBooking(id: string) {
+  await updateDoc(doc(db, "bookings", id), { archived: true });
+}
+
+/** Watch non-archived bookings for the practitioner */
+export function watchActiveBookings(cb: (rows: Booking[]) => void) {
+  const q = query(
+    collection(db, "bookings"),
+    where("archived", "!=", true),
+    orderBy("archived"),
+    orderBy("slotStart", "asc")
+  );
+  return onSnapshot(q, (snap) =>
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+  );
+}
+
+/** Get session status for a booking (for waiting room check) */
+export async function getSessionStatus(bookingId: string): Promise<"none" | "idle" | "live" | "complete"> {
+  try {
+    const snap = await getDoc(doc(db, "sessions", bookingId));
+    if (!snap.exists()) return "none";
+    return (snap.data() as SessionDoc).status;
+  } catch {
+    return "none";
+  }
+}

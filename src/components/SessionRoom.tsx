@@ -6,7 +6,7 @@ import {
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled,
 } from "@/lib/db";
-import { startVoice, VoiceHandle } from "@/lib/webrtc";
+import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
 import { SessionDoc, Message, Role, EXTENSION_MINUTES, DEFAULT_SETTINGS } from "@/lib/types";
@@ -85,7 +85,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // ── Voice ──
   const joinVoice = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await getMicStream();
       localStreamRef.current = stream;
       setMicOn(true);
 
