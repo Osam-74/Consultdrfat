@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
   getSettings, getTemplates, getExceptions, getActiveBookings, createBooking, markBookingPaid,
+  getClientBookings, getLiveSession,
 } from "@/lib/db";
 import { generateSlots, groupByDay, Slot } from "@/lib/slots";
 import { payNGN } from "@/lib/paystack";
 import { validateDiscountCode, redeemDiscountCode } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import SignInForm from "@/components/SignInForm";
-import { PracticeSettings, DEFAULT_SETTINGS } from "@/lib/types";
+import { PracticeSettings, DEFAULT_SETTINGS, Booking, SessionDoc } from "@/lib/types";
 import { Timestamp } from "firebase/firestore";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -35,6 +36,9 @@ export default function BookPage() {
   const [discountValidating, setDiscountValidating] = useState(false);
   const [discountApplied, setDiscountApplied] = useState<{ id: string; code: string; percent: number } | null>(null);
   const [discountError, setDiscountError] = useState("");
+  const [bookingHistory, setBookingHistory] = useState<Booking[]>([]);
+  const [liveBooking, setLiveBooking] = useState<{ booking: Booking; session: SessionDoc } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     // Wait for auth to resolve before loading slots
@@ -51,6 +55,23 @@ export default function BookPage() {
       const taken = new Set(b.map((x: { slotStart: { toMillis: () => number } }) => x.slotStart.toMillis()));
       setSlots(generateSlots(s, t, e, taken));
       setReady(true);
+
+      // Load booking history and check for any live session
+      if (user?.uid) {
+        setHistoryLoading(true);
+        getClientBookings(user.uid).then(async (bookings) => {
+          setBookingHistory(bookings);
+          // Check if any paid booking has a currently live session
+          // Only check the most recent few to avoid too many reads
+          const recent = bookings.slice(0, 5);
+          for (const bk of recent) {
+            try {
+              const sess = await getLiveSession(bk.id);
+              if (sess) { setLiveBooking({ booking: bk, session: sess }); break; }
+            } catch { /* permission issue — skip */ }
+          }
+        }).catch(() => {}).finally(() => setHistoryLoading(false));
+      }
     })();
   }, [user, loading]);
 
@@ -215,6 +236,62 @@ export default function BookPage() {
             Select a day, pick a time, and confirm your booking below.
           </p>
         </div>
+
+        {/* ── Live session resume banner ── */}
+        {liveBooking && (
+          <div className="resume-banner">
+            <div className="resume-pulse" />
+            <div className="resume-text">
+              <strong>Session in progress</strong>
+              <span>Your consultation with Dr. Fat is currently live.</span>
+            </div>
+            <a
+              href={`/session/?id=${liveBooking.booking.id}&role=client`}
+              className="btn btn-primary btn-sm"
+              style={{ whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              ↩ Resume session
+            </a>
+          </div>
+        )}
+
+        {/* ── Recent sessions ── */}
+        {bookingHistory.length > 0 && (
+          <div className="history-block">
+            <div className="history-title">
+              <span>📋 Your sessions</span>
+              {historyLoading && <span className="hist-loading">…</span>}
+            </div>
+            <div className="history-list">
+              {bookingHistory.slice(0, 6).map((bk) => {
+                const slot = bk.slotStart.toDate();
+                const isLive = liveBooking?.booking.id === bk.id;
+                const isPast = slot < new Date();
+                return (
+                  <div key={bk.id} className={"hist-row" + (isLive ? " live-row" : "")}>
+                    <div className="hist-info">
+                      {isLive && <span className="hist-live-dot" />}
+                      <span className="hist-date">
+                        {slot.toLocaleDateString("en-NG", { weekday: "short", day: "numeric", month: "short" })}
+                      </span>
+                      <span className="hist-time">
+                        {slot.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className={"hist-badge" + (isLive ? " badge-live" : isPast ? " badge-done" : " badge-upcoming")}>
+                        {isLive ? "Live" : isPast ? "Completed" : "Upcoming"}
+                      </span>
+                    </div>
+                    {isLive && (
+                      <a href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm" style={{ background: "var(--teal)", color: "#fff", padding: "4px 12px" }}>
+                        Join ↩
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="book-grid">
           {/* Calendar */}

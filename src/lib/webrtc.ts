@@ -48,10 +48,26 @@ export async function startVoice(opts: {
   localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
   const remote = new MediaStream();
   pc.ontrack = (e) => {
-    e.streams[0].getTracks().forEach((t) => remote.addTrack(t));
+    // Primary: use e.streams[0] if available; fallback to e.track directly.
+    // Some browsers (especially mobile Chrome) may provide e.streams as empty
+    // but always provide e.track.
+    if (e.streams && e.streams[0]) {
+      e.streams[0].getTracks().forEach((t) => {
+        if (!remote.getTrackById(t.id)) remote.addTrack(t);
+      });
+    } else if (e.track) {
+      if (!remote.getTrackById(e.track.id)) remote.addTrack(e.track);
+    }
     onRemote(remote);
   };
-  if (onState) pc.onconnectionstatechange = () => onState(pc.connectionState);
+  // Log connection state changes for diagnostics
+  pc.onconnectionstatechange = () => {
+    console.log("[WebRTC] connection state:", pc.connectionState);
+    if (onState) onState(pc.connectionState);
+  };
+  pc.onicegatheringstatechange = () => console.log("[WebRTC] ICE gathering:", pc.iceGatheringState);
+  pc.oniceconnectionstatechange = () => console.log("[WebRTC] ICE connection:", pc.iceConnectionState);
+
 
   const callRef = doc(db, "calls", bookingId);
   const offerCands = collection(callRef, "offerCandidates");
@@ -91,7 +107,7 @@ export async function startVoice(opts: {
         const data = snap.data() as { offer?: RTCSessionDescriptionInit } | undefined;
         if (data?.offer && !pc.currentRemoteDescription) {
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await pc.createAnswer();
+          const answer = await pc.createAnswer({ offerToReceiveAudio: true });
           await pc.setLocalDescription(answer);
           await setDoc(callRef, { answer: { type: answer.type, sdp: answer.sdp } }, { merge: true });
         }

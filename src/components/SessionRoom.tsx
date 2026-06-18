@@ -443,41 +443,104 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   function renderOverlay() {
     if (!session) return null;
+
+    // ── Practitioner overlays ──
     if (isPract) {
-      if (offer?.status === "sent")
-        return <div className="overlay"><h3>Offer sent</h3><p>Offered +{offer.minutes} min ({ngn(offer.priceNGN)}). Waiting for the client…</p></div>;
-      if (offer?.status === "accepted")
-        return <div className="overlay"><h3>Client paid</h3><p>Payment received for +{offer.minutes} min. Confirm to resume.</p>
-          <div className="ov-actions"><button className="obtn amber" onClick={() => confirmExtension(bookingId, session)}>Confirm &amp; resume</button></div></div>;
+      // Extension offer states
+      if (offer?.status === "sent") {
+        return (
+          <div className="overlay">
+            <div className="ov-icon">⏳</div>
+            <h3>Extension offer sent</h3>
+            <p>Offered +{offer.minutes} min ({ngn(offer.priceNGN)}). Waiting for the client to accept and pay…</p>
+          </div>
+        );
+      }
+      if (offer?.status === "accepted") {
+        return (
+          <div className="overlay">
+            <div className="ov-icon">✅</div>
+            <h3>Payment confirmed</h3>
+            <p>Client has paid for +{offer.minutes} min. Tap below to resume the session.</p>
+            <div className="ov-actions">
+              <button className="obtn amber" onClick={() => confirmExtension(bookingId, session)}>Confirm &amp; resume</button>
+            </div>
+          </div>
+        );
+      }
+      // Timer ran out
       if (!complete) return null;
-      if (chosen === null)
-        return <div className="overlay"><h3>Session time complete</h3><p>Close the session, or offer extra paid time.</p>
-          <div className="ov-actions">
-            <button className="obtn amber" onClick={() => setChosen(0)}>Offer more time</button>
-            <button className="obtn red" onClick={() => completeSession(bookingId)}>End session</button>
-          </div></div>;
-      if (chosen === 0)
-        return <div className="overlay"><h3>How long?</h3>
-          {queueWarn && <p className="warn-txt">{queueWarn}</p>}
-          <div className="ov-actions">
-            {EXTENSION_MINUTES.map(m => (
-              <button key={m} className="obtn amber" onClick={() => { setChosen(m); setOffer(bookingId, { minutes: m, priceNGN: priceFor(m), status: "sent" }); }}>
-                +{m} min · {ngn(priceFor(m))}
-              </button>
-            ))}
-          </div></div>;
-      return <div className="overlay"><h3>Extension offered</h3><p>Waiting for client to accept +{chosen} min.</p></div>;
+      if (chosen === null) {
+        return (
+          <div className="overlay">
+            <div className="ov-icon">⌛</div>
+            <h3>Time&apos;s up</h3>
+            <p>The session time has elapsed. You can end the session or offer the client extra paid time.</p>
+            <div className="ov-actions">
+              <button className="obtn amber" onClick={() => setChosen(0)}>+ Offer more time</button>
+              <button className="obtn red" onClick={() => completeSession(bookingId)}>End session</button>
+            </div>
+          </div>
+        );
+      }
+      if (chosen === 0) {
+        return (
+          <div className="overlay">
+            <div className="ov-icon">⏱</div>
+            <h3>How much extra time?</h3>
+            {queueWarn && <p className="warn-txt" style={{ color: "#F5D08A", fontSize: 13, marginBottom: 12 }}>{queueWarn}</p>}
+            <div className="ov-actions">
+              {EXTENSION_MINUTES.map(m => (
+                <button
+                  key={m}
+                  className="obtn amber"
+                  onClick={() => {
+                    setChosen(m);
+                    setOffer(bookingId, { minutes: m, priceNGN: priceFor(m), status: "sent" });
+                  }}
+                >
+                  +{m} min &middot; {ngn(priceFor(m))}
+                </button>
+              ))}
+            </div>
+            <button className="obtn ghost" style={{ marginTop: 10 }} onClick={() => completeSession(bookingId)}>
+              No, end session
+            </button>
+          </div>
+        );
+      }
+      return (
+        <div className="overlay">
+          <div className="ov-icon">💬</div>
+          <h3>Extension offered</h3>
+          <p>Waiting for your client to accept +{chosen} min…</p>
+        </div>
+      );
     }
-    // Client overlays
-    if (offer?.status === "sent")
-      return <div className="overlay"><h3>Extra time offered</h3>
-        <p>Your practitioner is offering +{offer.minutes} min for {ngn(offer.priceNGN)}.</p>
-        <div className="ov-actions">
-          <button className="obtn amber" onClick={acceptOffer}>Accept &amp; pay</button>
-          <button className="obtn red" onClick={() => setOffer(bookingId, { ...offer, status: "declined" })}>Decline</button>
-        </div></div>;
-    if (offer?.status === "accepted")
-      return <div className="overlay"><h3>Payment received</h3><p>Waiting for practitioner to confirm…</p></div>;
+
+    // ── Client overlays ──
+    if (offer?.status === "sent") {
+      return (
+        <div className="overlay">
+          <div className="ov-icon">⏰</div>
+          <h3>Extra time available</h3>
+          <p>Your practitioner is offering an additional {offer.minutes} minutes for {ngn(offer.priceNGN)}. Would you like to continue?</p>
+          <div className="ov-actions">
+            <button className="obtn amber" onClick={acceptOffer}>Accept &amp; pay</button>
+            <button className="obtn ghost" onClick={() => setOffer(bookingId, { ...offer, status: "declined" })}>No thanks</button>
+          </div>
+        </div>
+      );
+    }
+    if (offer?.status === "accepted") {
+      return (
+        <div className="overlay">
+          <div className="ov-icon">✅</div>
+          <h3>Payment received</h3>
+          <p>Waiting for your practitioner to confirm the extension…</p>
+        </div>
+      );
+    }
     return null;
   }
 }

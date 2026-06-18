@@ -1649,3 +1649,118 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   border-color: var(--teal);
   color: #9FD8D3;
 }
+
+/* ── Resume session banner ── */
+.resume-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(135deg, rgba(14,138,122,.15), rgba(14,138,122,.08));
+  border: 1.5px solid rgba(14,138,122,.4);
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.resume-banner::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(14,138,122,.06), transparent);
+  animation: shimmer 2.5s infinite;
+}
+@keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+.resume-pulse {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 0 rgba(14,138,122,.6);
+  animation: ripple 1.5s infinite;
+  flex-shrink: 0;
+}
+@keyframes ripple {
+  0% { box-shadow: 0 0 0 0 rgba(14,138,122,.6); }
+  70% { box-shadow: 0 0 0 10px rgba(14,138,122,0); }
+  100% { box-shadow: 0 0 0 0 rgba(14,138,122,0); }
+}
+.resume-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.resume-text strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.resume-text span {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ── Booking history block ── */
+.history-block {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 24px;
+}
+.history-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hist-loading { color: var(--muted); font-weight: 400; }
+.history-list { display: flex; flex-direction: column; gap: 6px; }
+.hist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.hist-row.live-row {
+  background: rgba(14,138,122,.06);
+  border-color: rgba(14,138,122,.3);
+}
+.hist-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.hist-live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 0 rgba(14,138,122,.6);
+  animation: ripple 1.5s infinite;
+  flex-shrink: 0;
+}
+.hist-date { font-size: 13px; font-weight: 600; color: var(--navy); }
+.hist-time { font-size: 12px; color: var(--muted); }
+.hist-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.badge-live { background: rgba(14,138,122,.15); color: var(--teal); }
+.badge-done { background: rgba(90,106,120,.12); color: var(--muted); }
+.badge-upcoming { background: rgba(200,150,58,.15); color: var(--gold); }
+
+/* ── Overlay polish ── */
+.ov-icon { font-size: 36px; margin-bottom: 10px; line-height: 1; }
+.obtn.red {
+  background: rgba(220,38,38,.85);
+  color: #fff;
+}
+.obtn.red:hover { background: rgba(185,28,28,.9); }

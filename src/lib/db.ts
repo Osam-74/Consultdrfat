@@ -479,3 +479,31 @@ export async function sendDiscountEmail(opts: {
 export async function setAttachmentsEnabled(bookingId: string, enabled: boolean) {
   await updateDoc(doc(db, "sessions", bookingId), { attachmentsEnabled: enabled });
 }
+
+/* ─────────────────────── Client booking history ─────────────────────── */
+
+/**
+ * Get all paid bookings for a client (for booking history tab).
+ * Ordered newest-first. Includes past sessions.
+ */
+export async function getClientBookings(clientUid: string): Promise<Booking[]> {
+  const q = query(
+    collection(db, "bookings"),
+    where("clientId", "==", clientUid),
+    where("status", "==", "paid"),
+    orderBy("slotStart", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }));
+}
+
+/**
+ * Get the live session doc for a booking, if it exists and is still "live".
+ * Returns null if no session or not in live state.
+ */
+export async function getLiveSession(bookingId: string): Promise<SessionDoc | null> {
+  const snap = await getDoc(doc(db, "sessions", bookingId));
+  if (!snap.exists()) return null;
+  const s = snap.data() as SessionDoc;
+  return s.status === "live" ? s : null;
+}
