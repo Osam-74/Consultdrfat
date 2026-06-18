@@ -281,7 +281,7 @@ img { max-width: 100%; height: auto; display: block; }
   background: var(--white); border: 1px solid var(--line);
   border-radius: 18px; padding: 22px;
   box-shadow: var(--shadow-sm);
-  min-width: 0; overflow: hidden; box-sizing: border-box;
+  min-width: 0; overflow: visible; box-sizing: border-box;
 }
 
 /* ── How It Works ── */
@@ -351,33 +351,106 @@ img { max-width: 100%; height: auto; display: block; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
 .panel-head h3 { font-size: 15px; color: var(--navy); font-family: var(--font-pjs), sans-serif; font-weight: 700; }
 .windownote { font-size: 11px; color: var(--muted); background: var(--sky-soft); border: 1px solid #C8DFF0; padding: 3px 10px; border-radius: 999px; font-weight: 500; }
-.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; overflow: hidden; min-width: 0; }
-.cal .dow { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-2); text-align: center; padding-bottom: 5px; font-weight: 600; }
-.day {
-  aspect-ratio: 1; border: 1.5px solid var(--line); border-radius: 10px;
-  background: var(--white); display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 2px;
-  font-size: 13px; font-weight: 500; position: relative; transition: all 0.15s;
+.cal-month-row { display: flex; align-items: center; margin-bottom: 10px; }
+.cal-month-label { font-size: 11.5px; font-weight: 700; color: var(--navy); letter-spacing: 0.02em; font-family: var(--font-pjs), sans-serif; }
+/* ── Calendar ── */
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
-.day .mon { font-size: 8px; color: var(--muted-2); text-transform: uppercase; font-weight: 600; }
-.day.has { cursor: pointer; border-color: var(--teal); color: var(--teal); }
-.day.has:hover { background: var(--teal-soft); transform: scale(1.04); }
-.day.has::after { content: ""; position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--teal); }
-.day.sel { background: var(--teal); color: #fff; border-color: var(--teal); box-shadow: 0 3px 12px rgba(14,138,122,.35); }
-.day.sel .mon { color: rgba(255,255,255,.7); }
-.day.sel::after { background: rgba(255,255,255,.7); }
-.day.none { opacity: .4; pointer-events: none; }
-.day.locked { background: #F0F3F6; color: #B8C4CC; border-style: dashed; border-color: #D0D9E0; }
-.day.empty { border: none; background: transparent; }
-.slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 16px; }
+.cal .dow {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted-2); text-align: center; padding-bottom: 6px;
+  font-weight: 700; font-family: var(--font-pjs), sans-serif;
+}
+.day {
+  position: relative;
+  width: 100%; padding-bottom: 100%; /* square via padding trick, no aspect-ratio */
+  border: 1.5px solid var(--line); border-radius: 10px;
+  background: var(--white); overflow: visible;
+  cursor: default; transition: all 0.18s; box-sizing: border-box;
+}
+/* Inner content sits absolutely inside the square */
+.day-inner {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1px;
+}
+.day .mon {
+  font-size: 7.5px; color: var(--muted-2);
+  text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em;
+  line-height: 1;
+}
+.day .num {
+  font-size: 13px; font-weight: 600; line-height: 1;
+  color: var(--ink-2);
+}
+/* Available day */
+.day.has {
+  cursor: pointer;
+  border-color: rgba(14,138,122,.45);
+  background: var(--teal-pale);
+}
+.day.has .num { color: var(--teal); font-weight: 700; }
+.day.has:hover {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(14,138,122,.18);
+}
+/* Availability dot */
+.day.has .day-dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--teal); margin-top: 2px;
+}
+/* Selected day */
+.day.sel {
+  background: var(--teal) !important;
+  border-color: var(--teal) !important;
+  box-shadow: 0 4px 16px rgba(14,138,122,.40);
+  transform: translateY(-1px);
+}
+.day.sel .mon { color: rgba(255,255,255,.65) !important; }
+.day.sel .num { color: #fff !important; }
+.day.sel .day-dot { background: rgba(255,255,255,.7); }
+/* No slots */
+.day.none {
+  opacity: .38; pointer-events: none;
+  background: var(--paper);
+}
+/* Locked (outside booking window) */
+.day.locked {
+  background: #F2F5F8; border-style: dashed;
+  border-color: #D4DDE5; pointer-events: none;
+}
+.day.locked .num { color: #C0CBD5; font-size: 11px; }
+.day.locked .mon { color: #C8D4DC; }
+/* Empty (padding cells) */
+.day.empty { border: none; background: transparent; pointer-events: none; }
+.slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 14px; }
 .slot {
   border: 1.5px solid var(--line); background: var(--white);
-  border-radius: 9px; padding: 10px 0; text-align: center;
-  font-size: 12.5px; font-weight: 600; color: var(--navy);
-  cursor: pointer; transition: all 0.15s;
+  border-radius: 10px; padding: 9px 4px; text-align: center;
+  font-size: 12px; font-weight: 700; color: var(--navy);
+  cursor: pointer; transition: all 0.18s; letter-spacing: 0.01em;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
 }
-.slot:hover { border-color: var(--teal); color: var(--teal); background: var(--teal-pale); }
-.slot.sel { background: var(--teal); border-color: var(--teal); color: #fff; box-shadow: 0 2px 10px rgba(14,138,122,.30); }
+.slot:hover {
+  border-color: var(--teal); color: var(--teal);
+  background: var(--teal-pale);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(14,138,122,.14);
+}
+.slot.sel {
+  background: linear-gradient(135deg, var(--teal), var(--teal-mid));
+  border-color: var(--teal); color: #fff;
+  box-shadow: 0 3px 12px rgba(14,138,122,.35);
+  transform: translateY(-1px);
+}
 .muted-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 14px; margin-bottom: 7px; font-weight: 600; }
 .sumline { display: flex; gap: 10px; font-size: 14px; margin-bottom: 9px; align-items: flex-start; min-width: 0; overflow: hidden; }
 .sumline .ic { color: var(--teal); font-size: 15px; margin-top: 2px; }

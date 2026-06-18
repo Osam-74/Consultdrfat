@@ -217,23 +217,40 @@ export default function BookPage() {
               <h3>📅 Available Days</h3>
               <span className="windownote">Next {settings.bookingWindowDays} days</span>
             </div>
+            {/* Month label */}
+            <div className="cal-month-row">
+              {(() => {
+                const today = new Date();
+                const months: string[] = [];
+                for (let i = 0; i < 3; i++) {
+                  const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+                  months.push(MON[d.getMonth()] + " " + d.getFullYear());
+                }
+                return <span className="cal-month-label">{months.join(" · ")}</span>;
+              })()}
+            </div>
             <div className="cal">
               {DOW.map((d) => <div key={d} className="dow">{d}</div>)}
-              {cells.map((c) => {
-                if (c.past) return <div key={c.key} className="day empty" />;
-                if (c.beyond) return (
-                  <div key={c.key} className="day locked">
-                    <span className="mon">{MON[c.date.getMonth()]}</span>
-                    {c.date.getDate()}
-                    <span style={{ fontSize: 8 }}>🔒</span>
+              {cells.map((cell) => {
+                if (cell.past) return <div key={cell.key} className="day empty" />;
+                if (cell.beyond) return (
+                  <div key={cell.key} className="day locked">
+                    <div className="day-inner">
+                      <span className="mon">{MON[cell.date.getMonth()]}</span>
+                      <span className="num" style={{ opacity: 0.45 }}>{cell.date.getDate()}</span>
+                    </div>
                   </div>
                 );
-                const has = byDay.has(c.key);
-                const cls = "day" + (has ? " has" : " none") + (selDay === c.key ? " sel" : "");
+                const has = byDay.has(cell.key);
+                const isSel = selDay === cell.key;
+                const cls = "day" + (has ? " has" : " none") + (isSel ? " sel" : "");
                 return (
-                  <div key={c.key} className={cls} onClick={() => has && (setSelDay(c.key), setSelSlot(null))}>
-                    <span className="mon">{MON[c.date.getMonth()]}</span>
-                    {c.date.getDate()}
+                  <div key={cell.key} className={cls} onClick={() => has && (setSelDay(cell.key), setSelSlot(null))}>
+                    <div className="day-inner">
+                      <span className="mon">{MON[cell.date.getMonth()]}</span>
+                      <span className="num">{cell.date.getDate()}</span>
+                      {has && <span className="day-dot" />}
+                    </div>
                   </div>
                 );
               })}
