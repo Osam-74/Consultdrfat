@@ -53,6 +53,9 @@ export interface Booking {
   status: BookingStatus;
   topic?: string;
   amountNGN: number;
+  discountCode?: string;       // code string applied at booking
+  discountCodeId?: string;     // document id in discountCodes
+  discountPercent?: number;    // % applied
   paystackRef?: string;
   createdAt: Timestamp;
 }
@@ -71,6 +74,7 @@ export interface SessionDoc {
   offer: Offer | null;
   nextClientAt: string | null; // human label of next booking, for the queue guard
   updatedAt: Timestamp;
+  attachmentsEnabled?: boolean; // practitioner can toggle client file uploads
 }
 
 export interface Message {

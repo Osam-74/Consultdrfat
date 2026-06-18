@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
   GoogleAuthProvider,
-  signInWithCredential,
+  signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -11,97 +11,75 @@ import {
   signOut as fbSignOut,
   onAuthStateChanged,
   User,
+  browserLocalPersistence,
+  setPersistence,
 } from "firebase/auth";
 import { auth, PRACTITIONER_UID } from "./firebase";
 import { Role } from "./types";
 
-// ── Google OAuth — direct implicit flow, zero Firebase iframe needed ──────────
+// ── Google OAuth via signInWithPopup ─────────────────────────────────────────
 //
-// Firebase's signInWithPopup/Redirect loads consultdrfat.firebaseapp.com in a
-// cross-origin iframe. Firefox Enhanced Tracking Protection times this out.
+// We use signInWithPopup (not signInWithRedirect) because:
 //
-// Solution: drive Google OAuth ourselves using the implicit flow:
-//   1. signInGoogle() saves current path to sessionStorage, redirects to accounts.google.com
-//   2. Google sends user back with #id_token=... in the URL hash
-//   3. On mount, consumeGoogleHash() reads the hash, calls signInWithCredential — done.
-//   No iframe. No popup. No cross-origin anything except accounts.google.com itself.
+// 1. This is a Next.js static export deployed on Vercel.
+//    signInWithRedirect requires the browser to keep a pending auth state
+//    between navigations. In a fully static export (no server), the state
+//    stored by Firebase in IndexedDB/sessionStorage sometimes doesn't survive
+//    the redirect round-trip on mobile browsers → user lands back at sign-in.
 //
-// NEXT_PUBLIC_GOOGLE_CLIENT_ID = the "Web client ID" from:
-//   Firebase Console → Authentication → Sign-in method → Google → expand → Web client ID
+// 2. signInWithPopup opens a small window to accounts.google.com.
+//    The parent page never navigates, so auth state is captured immediately
+//    in the same JS context.
+//
+// Firefox ETP note: Firefox ETP blocks cross-site *iframes*, not popups.
+//    The popup window itself is a first-party Google window — it is NOT
+//    blocked. What Firefox ETP blocks is the hidden iframe that Firebase uses
+//    for *session refresh* (not for the initial sign-in popup itself).
+//    signInWithPopup for the initial login works fine in Firefox.
+//
+// If a popup is blocked by the browser (user has popups blocked), we catch
+// the "popup-blocked" error and show a helpful message.
 
-const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
-const RETURN_KEY = "gauth_return";
-
-function buildGoogleUrl(redirectUri: string): string {
-  const p = new URLSearchParams({
-    client_id:     CLIENT_ID,
-    redirect_uri:  redirectUri,
-    response_type: "id_token",
-    scope:         "openid email profile",
-    prompt:        "select_account",
-    nonce:         Math.random().toString(36).slice(2),
-  });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
-}
-
-// Call on mount — if the URL hash has id_token, consume it and sign in
-async function consumeGoogleHash(): Promise<void> {
-  if (typeof window === "undefined") return;
-  const hash = window.location.hash.slice(1);
-  if (!hash.includes("id_token")) return;
-
-  const params = new URLSearchParams(hash);
-  const idToken = params.get("id_token");
-  if (!idToken) return;
-
-  // Clean the hash before Firebase sees anything
-  window.history.replaceState(null, "", window.location.pathname + window.location.search);
-
-  const credential = GoogleAuthProvider.credential(idToken);
-  try {
-    await signInWithCredential(auth, credential);
-  } catch (err) {
-    console.error("[consumeGoogleHash] signInWithCredential failed:", err);
-  }
-}
-
-// ── Context ───────────────────────────────────────────────────────────────────
+const provider = new GoogleAuthProvider();
+provider.addScope("email");
+provider.addScope("profile");
+provider.setCustomParameters({ prompt: "select_account" });
 
 interface AuthState {
   user: User | null;
   role: Role | null;
   loading: boolean;
+  googleLoading: boolean;
   signInEmail:   (email: string, password: string) => Promise<void>;
   signUpEmail:   (email: string, password: string, name: string) => Promise<void>;
-  signInGoogle:  () => void;
+  signInGoogle:  () => Promise<void>;
   signOut:       () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
 
 const Ctx = createContext<AuthState>({
-  user: null, role: null, loading: true,
+  user: null, role: null, loading: true, googleLoading: false,
   signInEmail:   async () => {},
   signUpEmail:   async () => {},
-  signInGoogle:  () => {},
+  signInGoogle:  async () => {},
   signOut:       async () => {},
   resetPassword: async () => {},
 });
 
-function ready() {
+function isReady() {
   return auth &&
     typeof (auth as unknown as { onAuthStateChanged?: unknown }).onAuthStateChanged === "function";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]       = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]                   = useState<User | null>(null);
+  const [loading, setLoading]             = useState(true);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
-    if (!ready()) { setLoading(false); return; }
-
-    // Consume Google redirect result before anything else
-    consumeGoogleHash().catch(console.error);
-
+    if (!isReady()) { setLoading(false); return; }
+    // Set persistence to local so the user stays logged in across page reloads
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -114,39 +92,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     : null;
 
   const signInEmail = async (email: string, password: string) => {
-    if (!ready()) return;
+    if (!isReady()) return;
     await signInWithEmailAndPassword(auth, email, password);
   };
 
   const signUpEmail = async (email: string, password: string, name: string) => {
-    if (!ready()) return;
+    if (!isReady()) return;
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
   };
 
-  const signInGoogle = () => {
-    if (!CLIENT_ID) {
-      console.error("NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set");
-      alert("Google sign-in is not configured. Please use email/password for now.");
-      return;
+  const signInGoogle = async () => {
+    if (!isReady()) return;
+    setGoogleLoading(true);
+    try {
+      const cred = await signInWithPopup(auth, provider);
+      setUser(cred.user);
+    } finally {
+      setGoogleLoading(false);
     }
-    // redirect_uri must exactly match an entry in Google Cloud Console → OAuth → Authorised redirect URIs
-    const redirectUri = window.location.href.split("#")[0].split("?")[0];
-    window.location.href = buildGoogleUrl(redirectUri);
   };
 
   const signOut = async () => {
-    if (!ready()) return;
+    if (!isReady()) return;
     await fbSignOut(auth);
+    setUser(null);
   };
 
   const resetPassword = async (email: string) => {
-    if (!ready()) return;
+    if (!isReady()) return;
     await sendPasswordResetEmail(auth, email);
   };
 
   return (
-    <Ctx.Provider value={{ user, role, loading, signInEmail, signUpEmail, signInGoogle, signOut, resetPassword }}>
+    <Ctx.Provider value={{ user, role, loading, googleLoading, signInEmail, signUpEmail, signInGoogle, signOut, resetPassword }}>
       {children}
     </Ctx.Provider>
   );

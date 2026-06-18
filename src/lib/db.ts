@@ -36,7 +36,14 @@ export async function saveSettings(s: PracticeSettings) {
 /* ─────────────────────── Availability ──────────────────────── */
 export async function getTemplates(): Promise<AvailabilityTemplate[]> {
   const snap = await getDocs(collection(db, "availabilityTemplates"));
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AvailabilityTemplate, "id">) }));
+  return snap.docs.map((d) => {
+    const data = d.data() as Omit<AvailabilityTemplate, "id">;
+    return {
+      id: d.id,
+      ...data,
+      weekday: Number(data.weekday), // Firestore may return as string — coerce to number
+    };
+  });
 }
 export async function saveTemplate(t: Omit<AvailabilityTemplate, "id"> & { id?: string }) {
   if (t.id) {
@@ -61,16 +68,26 @@ export async function deleteException(id: string) {
 }
 
 /* ───────────────────────── Bookings ────────────────────────── */
-export async function getActiveBookings(): Promise<Booking[]> {
-  const q = query(
-    collection(db, "bookings"),
-    where("slotStart", ">", Timestamp.now()),
-    orderBy("slotStart", "asc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
-    .filter((b) => b.status !== "cancelled");
+export async function getActiveBookings(clientUid?: string): Promise<Booking[]> {
+  // Firestore rules only allow clients to read their own bookings.
+  // A query without a clientId filter gets PERMISSION_DENIED and kills Promise.all.
+  // If no uid is provided (not yet authenticated) return empty — no taken slots.
+  if (!clientUid) return [];
+  try {
+    const q = query(
+      collection(db, "bookings"),
+      where("clientId", "==", clientUid),
+      where("slotStart", ">", Timestamp.now()),
+      orderBy("slotStart", "asc")
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => b.status !== "cancelled");
+  } catch {
+    // Non-fatal — if this fails, just show all slots as available
+    return [];
+  }
 }
 
 // Fetch up to `limit` most-recent bookings for the currently signed-in client.
@@ -94,6 +111,9 @@ export async function createBooking(b: Omit<Booking, "id" | "createdAt">): Promi
 }
 export async function markBookingPaid(id: string, paystackRef: string) {
   await updateDoc(doc(db, "bookings", id), { status: "paid", paystackRef });
+}
+export async function cancelBooking(id: string) {
+  await updateDoc(doc(db, "bookings", id), { status: "cancelled" });
 }
 export function watchBookings(cb: (rows: Booking[]) => void) {
   const q = query(collection(db, "bookings"), orderBy("slotStart", "asc"));
@@ -328,4 +348,215 @@ export async function sendReminderEmail(
       html: reminderHtml(clientName, slotStart, minutesBefore),
     },
   });
+}
+
+/* ─────────────────────── Discount Codes ─────────────────────── */
+
+export interface DiscountCode {
+  id: string;
+  code: string;           // e.g. "DRFAT-3X7K"
+  percent: number;        // 10 | 20 | 30 | 50 etc.
+  createdFor: string;     // client email
+  createdForName: string;
+  createdForUid: string;
+  bookingId: string;      // session where it was generated
+  used: boolean;
+  usedAt?: Timestamp;
+  usedInBookingId?: string;
+  createdAt: Timestamp;
+  expiresAt: Timestamp;   // 90 days from creation
+}
+
+/** Generate a short alphanumeric code like "DRFAT-3X7K" */
+function makeCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no confusing 0/O/1/I
+  let suffix = "";
+  for (let i = 0; i < 4; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
+  return `DRFAT-${suffix}`;
+}
+
+/**
+ * Generate and store a discount code for a client.
+ * Called from the practitioner during a live session.
+ * Returns the saved DiscountCode (with id).
+ */
+export async function createDiscountCode(opts: {
+  percent: number;
+  clientEmail: string;
+  clientName: string;
+  clientUid: string;
+  bookingId: string;
+}): Promise<DiscountCode> {
+  const now = Timestamp.now();
+  const expires = Timestamp.fromMillis(now.toMillis() + 90 * 24 * 60 * 60 * 1000);
+  const code = makeCode();
+  const payload = {
+    code,
+    percent: opts.percent,
+    createdFor: opts.clientEmail,
+    createdForName: opts.clientName,
+    createdForUid: opts.clientUid,
+    bookingId: opts.bookingId,
+    used: false,
+    createdAt: now,
+    expiresAt: expires,
+  };
+  const ref = await addDoc(collection(db, "discountCodes"), payload);
+  return { id: ref.id, ...payload };
+}
+
+/**
+ * Validate a discount code for a given client email.
+ * Returns the code doc if valid, null if invalid/expired/used/wrong client.
+ */
+export async function validateDiscountCode(
+  code: string,
+  clientEmail: string
+): Promise<DiscountCode | null> {
+  const q = query(
+    collection(db, "discountCodes"),
+    where("code", "==", code.trim().toUpperCase()),
+    where("used", "==", false)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = { id: snap.docs[0].id, ...snap.docs[0].data() } as DiscountCode;
+  if (d.createdFor.toLowerCase() !== clientEmail.toLowerCase()) return null;
+  if (d.expiresAt.toMillis() < Date.now()) return null;
+  return d;
+}
+
+/** Mark a discount code as used */
+export async function redeemDiscountCode(codeId: string, bookingId: string) {
+  await updateDoc(doc(db, "discountCodes", codeId), {
+    used: true,
+    usedAt: Timestamp.now(),
+    usedInBookingId: bookingId,
+  });
+}
+
+/** Queue a discount notification email */
+export async function sendDiscountEmail(opts: {
+  toEmail: string;
+  clientName: string;
+  code: string;
+  percent: number;
+  expiresAt: Date;
+}) {
+  const exp = opts.expiresAt.toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" });
+  await queueEmail({
+    to: opts.toEmail,
+    message: {
+      subject: `🎁 You've received a ${opts.percent}% discount from Dr. Fat`,
+      html: `
+<!DOCTYPE html>
+<html>
+<body style="font-family:'Segoe UI',Arial,sans-serif;background:#f8f8f6;margin:0;padding:0">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(11,43,74,.10)">
+    <div style="background:linear-gradient(135deg,#0B2B4A,#0E8A7A);padding:28px 32px;text-align:center">
+      <div style="font-size:42px;margin-bottom:6px">🎁</div>
+      <h1 style="color:#fff;font-size:22px;margin:0;font-family:Georgia,serif">You've got a discount!</h1>
+      <p style="color:rgba(255,255,255,.75);font-size:13px;margin:8px 0 0">A special offer from your practitioner</p>
+    </div>
+    <div style="padding:28px 32px">
+      <p style="font-size:15px;color:#0E1C2A;margin:0 0 12px">Hi ${opts.clientName},</p>
+      <p style="font-size:14px;color:#5A6A78;line-height:1.6;margin:0 0 20px">
+        Dr. Fat has sent you a special discount for your next consultation:
+      </p>
+      <div style="background:#F0FAF9;border-radius:14px;padding:24px;text-align:center;margin-bottom:20px;border:2px dashed #0E8A7A">
+        <div style="font-size:13px;color:#5A6A78;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Your discount code</div>
+        <div style="font-size:32px;font-weight:800;color:#0E8A7A;letter-spacing:.12em;font-family:monospace">${opts.code}</div>
+        <div style="font-size:28px;font-weight:700;color:#0B2B4A;margin-top:8px">${opts.percent}% OFF</div>
+        <div style="font-size:12px;color:#8FA0B0;margin-top:8px">Valid until ${exp}</div>
+      </div>
+      <p style="font-size:13px;color:#5A6A78;margin:0 0 16px;line-height:1.6">
+        Enter this code in the <strong>"Discount code"</strong> field when booking your next session at
+        <a href="https://consultdrfat.vercel.app/book/" style="color:#0E8A7A">consultdrfat.vercel.app/book</a>.
+        The discount is applied automatically — only you can use this code.
+      </p>
+    </div>
+    <div style="background:#F0F3F6;padding:16px 32px;text-align:center;border-top:1px solid #E0E8EF">
+      <p style="font-size:11px;color:#8FA0B0;margin:0">ConsultDrFat · 🔒 Encrypted · 🇳🇬 Nigeria</p>
+    </div>
+  </div>
+</body>
+</html>`,
+    },
+  });
+}
+
+/* ─────────────────────── Attachment Toggle ─────────────────────── */
+
+/**
+ * Toggle whether clients can attach files in the session.
+ * Stored on the session doc as `attachmentsEnabled: boolean`.
+ */
+export async function setAttachmentsEnabled(bookingId: string, enabled: boolean) {
+  await updateDoc(doc(db, "sessions", bookingId), { attachmentsEnabled: enabled });
+}
+
+/* ─────────────────────── Client booking history ─────────────────────── */
+
+// getClientBookings is defined above (handles both upcoming and past, with limit)
+
+/**
+ * Get the live session doc for a booking, if it exists and is still "live".
+ * Returns null if no session or not in live state.
+ */
+export async function getLiveSession(bookingId: string): Promise<SessionDoc | null> {
+  const snap = await getDoc(doc(db, "sessions", bookingId));
+  if (!snap.exists()) return null;
+  const s = snap.data() as SessionDoc;
+  return s.status === "live" ? s : null;
+}
+
+/* ─────────────────────── Waiting Room / Archive ──────────────────────────
+   Practitioner can see who is "in the waiting room" = has a paid booking
+   whose slot is within the next 90 minutes and whose session is idle/not started.
+   Archive = mark a session as archived so it doesn't clutter the bookings list.
+──────────────────────────────────────────────────────────────────────────── */
+
+/** Watch all paid bookings whose slot starts within the next 90 min (waiting room) */
+export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
+  const now = Timestamp.now();
+  const soon = Timestamp.fromMillis(Date.now() + 90 * 60 * 1000);
+  const q = query(
+    collection(db, "bookings"),
+    where("status", "==", "paid"),
+    where("slotStart", ">=", now),
+    where("slotStart", "<=", soon),
+    orderBy("slotStart", "asc")
+  );
+  return onSnapshot(q, (snap) =>
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+  );
+}
+
+/** Archive a booking (soft-delete from active list) */
+export async function archiveBooking(id: string) {
+  await updateDoc(doc(db, "bookings", id), { archived: true });
+}
+
+/** Watch non-archived bookings for the practitioner */
+export function watchActiveBookings(cb: (rows: Booking[]) => void) {
+  const q = query(
+    collection(db, "bookings"),
+    where("archived", "!=", true),
+    orderBy("archived"),
+    orderBy("slotStart", "asc")
+  );
+  return onSnapshot(q, (snap) =>
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+  );
+}
+
+/** Get session status for a booking (for waiting room check) */
+export async function getSessionStatus(bookingId: string): Promise<"none" | "idle" | "live" | "complete"> {
+  try {
+    const snap = await getDoc(doc(db, "sessions", bookingId));
+    if (!snap.exists()) return "none";
+    return (snap.data() as SessionDoc).status;
+  } catch {
+    return "none";
+  }
 }

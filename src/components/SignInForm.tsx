@@ -24,15 +24,19 @@ const GoogleLogo = () => (
   </svg>
 );
 
+const Spinner = () => (
+  <span style={{
+    display: "inline-block", width: 16, height: 16, borderRadius: "50%",
+    border: "2px solid currentColor", borderTopColor: "transparent",
+    animation: "spin 0.7s linear infinite", flexShrink: 0,
+  }} />
+);
+
 type Mode = "signin" | "register" | "reset";
+interface Props { title?: string; subtitle?: string; }
 
-interface Props {
-  title?: string;
-  subtitle?: string;
-}
-
-export default function SignInForm({ title = "Sign In", subtitle = "Enter your credentials to continue." }: Props) {
-  const { signInEmail, signUpEmail, signInGoogle, resetPassword } = useAuth();
+export default function SignInForm({ title = "Sign In", subtitle = "Sign in to book your consultation securely." }: Props) {
+  const { signInEmail, signUpEmail, signInGoogle, resetPassword, googleLoading } = useAuth();
   const [mode, setMode]           = useState<Mode>("signin");
   const [name, setName]           = useState("");
   const [email, setEmail]         = useState("");
@@ -48,18 +52,15 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
       case "auth/user-not-found":
       case "auth/wrong-password":
       case "auth/invalid-credential":    return "Incorrect email or password.";
-      case "auth/email-already-in-use":  return "An account with this email already exists. Sign in instead.";
+      case "auth/email-already-in-use":  return "An account with this email already exists.";
       case "auth/weak-password":         return "Password must be at least 6 characters.";
       case "auth/invalid-email":         return "Please enter a valid email address.";
       case "auth/too-many-requests":     return "Too many attempts — try again later.";
-      case "auth/user-disabled":         return "This account has been disabled.";
-      case "auth/network-request-failed":return "Network error — check your connection.";
-      case "auth/popup-blocked":         return "Pop-up blocked. Trying redirect instead…";
+      case "auth/popup-blocked":         return "Popup was blocked. Please allow popups for this site and try again.";
       case "auth/popup-closed-by-user":
-      case "auth/cancelled-popup-request": return "Sign-in was cancelled.";
-      case "auth/unauthorized-domain":   return "This domain is not authorised in Firebase.";
-      case "auth/operation-not-allowed": return "Google sign-in is not enabled in Firebase console.";
-      default:                           return `Sign-in failed (${code || "unknown"}). Please try again.`;
+      case "auth/cancelled-popup-request": return ""; // user closed popup — no error
+      case "auth/network-request-failed": return "Network error — check your connection.";
+      default: return code ? `Sign-in failed (${code}).` : "Sign-in failed. Please try again.";
     }
   };
 
@@ -69,15 +70,15 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     e.preventDefault(); setError(""); setBusy(true);
     try {
       if (mode === "register") {
-        if (password !== confirm) { setError("Passwords do not match."); setBusy(false); return; }
+        if (password !== confirm) { setError("Passwords do not match."); return; }
         await signUpEmail(email, password, name);
       } else {
         await signInEmail(email, password);
       }
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
-      console.error("[Email auth]", code, err);
-      setError(friendly(code));
+      const msg = friendly(code);
+      if (msg) setError(msg);
     } finally { setBusy(false); }
   };
 
@@ -90,9 +91,15 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
     } finally { setBusy(false); }
   };
 
-  const handleGoogle = () => {
+  const handleGoogle = async () => {
     setError("");
-    signInGoogle();
+    try {
+      await signInGoogle();
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code ?? "";
+      const msg = friendly(code);
+      if (msg) setError(msg);
+    }
   };
 
   const modeTitle    = mode === "register" ? "Create Account" : mode === "reset" ? "Reset Password" : title;
@@ -100,6 +107,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
 
   return (
     <div className="signin-page">
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div className="signin-card">
         <div className="brand-badge">
           <div className="icon">🩺</div>
@@ -107,7 +115,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
           <p className="subtitle">{modeSubtitle}</p>
         </div>
 
-        {/* ── Reset sent ── */}
+        {/* Reset sent */}
         {resetSent && (
           <div className="signin-success">
             <div className="success-icon">📬</div>
@@ -119,7 +127,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
           </div>
         )}
 
-        {/* ── Reset form ── */}
+        {/* Reset form */}
         {!resetSent && mode === "reset" && (
           <form onSubmit={handleReset}>
             <div className="signin-field">
@@ -131,7 +139,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
             </div>
             {error && <div className="signin-error">⚠️ {error}</div>}
             <button type="submit" className="btn btn-primary btn-signin" disabled={busy}>
-              {busy ? "Sending…" : "📧 Send Reset Link"}
+              {busy ? <><Spinner /> Sending…</> : "📧 Send Reset Link"}
             </button>
             <div className="signin-footer">
               <button type="button" onClick={() => go("signin")}>← Back to Sign In</button>
@@ -139,12 +147,11 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
           </form>
         )}
 
-        {/* ── Sign In / Register ── */}
+        {/* Sign In / Register */}
         {!resetSent && (mode === "signin" || mode === "register") && (
           <>
-            {/* Google button */}
-            <button className="btn-google" onClick={handleGoogle} disabled={busy} type="button">
-              <GoogleLogo /><span>Continue with Google</span>
+            <button className="btn-google" onClick={handleGoogle} disabled={googleLoading} type="button">
+              {googleLoading ? <><Spinner /> Signing in with Google…</> : <><GoogleLogo /><span>Continue with Google</span></>}
             </button>
 
             <div className="divider-or">or {mode === "register" ? "register" : "sign in"} with email</div>
@@ -159,7 +166,6 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
                   </div>
                 </div>
               )}
-
               <div className="signin-field">
                 <label>Email address</label>
                 <div className="input-wrap">
@@ -167,7 +173,6 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
                     onChange={e => setEmail(e.target.value)} placeholder="your@email.com" />
                 </div>
               </div>
-
               <div className="signin-field">
                 <label>Password</label>
                 <div className="input-wrap">
@@ -177,12 +182,11 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
                     placeholder={mode === "register" ? "Min 6 characters" : "••••••••"}
                     minLength={mode === "register" ? 6 : undefined} />
                   <button type="button" className="eye-btn" onClick={() => setShowPw(v => !v)}
-                    tabIndex={-1} aria-label={showPw ? "Hide password" : "Show password"}>
+                    tabIndex={-1} aria-label={showPw ? "Hide" : "Show"}>
                     <EyeIcon open={showPw} />
                   </button>
                 </div>
               </div>
-
               {mode === "register" && (
                 <div className="signin-field">
                   <label>Confirm password</label>
@@ -192,25 +196,31 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
                   </div>
                 </div>
               )}
-
               {error && <div className="signin-error">⚠️ {error}</div>}
-
               <button type="submit" className="btn btn-primary btn-signin" disabled={busy}>
                 {busy
-                  ? (mode === "register" ? "Creating account…" : "Signing in…")
-                  : (mode === "register" ? "🩺 Create Account" : "🔒 Sign In")
-                }
+                  ? <><Spinner /> {mode === "register" ? "Creating…" : "Signing in…"}</>
+                  : mode === "register" ? "🩺 Create Account" : "🔒 Sign In"}
               </button>
-
               <div className="signin-footer">
                 {mode === "signin" ? (
                   <>
                     <button type="button" onClick={() => go("reset")}>Forgot password?</button>
-                    <span style={{ margin: "0 8px", color: "var(--line)" }}>·</span>
+                    <span style={{ margin: "0 8px", color: "var(--line)" }}>|</span>
                     <button type="button" onClick={() => go("register")}>Create account</button>
+                    <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
+                      By signing in you agree to our{" "}
+                      <a href="/privacy" target="_blank" rel="noopener" style={{ color: "var(--teal)", textDecoration: "underline", fontWeight: 600 }}>Privacy Policy</a>
+                    </div>
                   </>
                 ) : (
-                  <button type="button" onClick={() => go("signin")}>← Back to Sign In</button>
+                  <>
+                    <button type="button" onClick={() => go("signin")}>Already have an account? Sign in</button>
+                    <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
+                      By registering you agree to our{" "}
+                      <a href="/privacy" target="_blank" rel="noopener" style={{ color: "var(--teal)", textDecoration: "underline", fontWeight: 600 }}>Privacy Policy</a>
+                    </div>
+                  </>
                 )}
               </div>
             </form>
