@@ -51,6 +51,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Practitioner file upload refs/state
+  const practFileRef = useRef<HTMLInputElement>(null);
+  const [practUploading, setPractUploading] = useState(false);
+
   const msgsRef = useRef<HTMLDivElement>(null);
   const voiceRef = useRef<VoiceHandle | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -83,6 +87,28 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       } catch { /* ignore */ }
     }
   }, [messages, isPract]);
+
+  // ── Practitioner file upload handler ──
+  const handlePractFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const MAX = 20 * 1024 * 1024;
+    if (file.size > MAX) { alert("File must be under 20 MB."); return; }
+    setPractUploading(true);
+    try {
+      const uploaded = await uploadSessionFile(bookingId, file, API_BASE);
+      const isImage = file.type.startsWith("image/");
+      const label = isImage ? `🖼️ ${file.name}` : `📎 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+      await sendMessage(bookingId, role, label, uploaded);
+    } catch (err) {
+      console.error("Practitioner file share error:", err);
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      alert(`Could not share file: ${msg}`);
+    } finally {
+      setPractUploading(false);
+      if (practFileRef.current) practFileRef.current.value = "";
+    }
+  };
 
   // ── Voice ──
   const joinVoice = async () => {
@@ -147,6 +173,21 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     voiceRef.current?.stop();
   }, []);
+
+  // ── Auto-join voice the moment session goes live ──────────────────────
+  // This fires for BOTH sides: practitioner (who just pressed Start)
+  // and client (who is waiting and sees the status flip to "live").
+  const hasAutoJoinedRef = useRef(false);
+  useEffect(() => {
+    if (!session) return;
+    if (session.status !== "live") return;
+    if (hasAutoJoinedRef.current) return;
+    if (localStreamRef.current) return; // already in voice
+    hasAutoJoinedRef.current = true;
+    joinVoice();
+  // joinVoice is stable (no deps change); session.status is what triggers this
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status]);
 
   // ── Redirect on session complete ──
   useEffect(() => {
@@ -329,7 +370,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 ? <button className="ctl" onClick={joinVoice} disabled={!sessionLive} title={!sessionLive ? "Waiting for session to start…" : undefined}>
                     <span className="knob">🎧</span>{sessionLive ? "Join voice" : "Waiting…"}
                   </button>
-                : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute} disabled={!sessionLive}>
+                : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute}>
                     <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
                   </button>}
               <button className="ctl danger" onClick={() => completeSession(bookingId)} disabled={!sessionLive && !isPract}>
@@ -493,13 +534,35 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </div>
             )}
 
-            {/* Attachment toggle */}
+            {/* Practitioner file share button */}
+            {sessionLive && (
+              <>
+                <button
+                  className="dbtn"
+                  style={{ marginTop: 4 }}
+                  onClick={() => practFileRef.current?.click()}
+                  disabled={practUploading}
+                  title="Share a file or image with your client"
+                >
+                  {practUploading ? "Uploading…" : "📎 Share file"}
+                </button>
+                <input
+                  ref={practFileRef}
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx"
+                  style={{ display: "none" }}
+                  onChange={handlePractFile}
+                />
+              </>
+            )}
+
+            {/* Attachment toggle — allow client to share files */}
             <div
               className={"toggle" + (attachmentsOn ? " on" : "")}
               onClick={() => setAttachmentsEnabled(bookingId, !attachmentsOn)}
               title="Allow client to attach files"
             >
-              <span className="sw" /> Client file uploads
+              <span className="sw" /> Allow client file uploads
             </div>
 
             <div

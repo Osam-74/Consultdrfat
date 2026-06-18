@@ -188,7 +188,10 @@ export async function uploadSessionFile(
   file: File,
   apiBase: string
 ): Promise<{ url: string; type: string; name: string; size: number }> {
-  if (!apiBase) throw new Error("API_BASE not configured");
+  if (!apiBase) throw new Error(
+    "NEXT_PUBLIC_API_BASE is not set. " +
+    "Go to Vercel → Project Settings → Environment Variables and add NEXT_PUBLIC_API_BASE = https://your-worker.workers.dev, then redeploy."
+  );
 
   const form = new FormData();
   form.append("file", file);
@@ -554,15 +557,19 @@ export async function getLiveSession(bookingId: string): Promise<SessionDoc | nu
    Archive = mark a session as archived so it doesn't clutter the bookings list.
 ──────────────────────────────────────────────────────────────────────────── */
 
-/** Watch all paid bookings whose slot starts within the next 90 min (waiting room) */
+/** Watch paid bookings whose slot falls within [-30 min, +90 min] of now.
+ *  This covers:
+ *  - Upcoming clients (arriving early)
+ *  - Clients already in the room (slot started up to 30 min ago)
+ */
 export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
-  const now = Timestamp.now();
-  const soon = Timestamp.fromMillis(Date.now() + 90 * 60 * 1000);
+  const windowStart = Timestamp.fromMillis(Date.now() - 30 * 60 * 1000); // 30 min ago
+  const windowEnd   = Timestamp.fromMillis(Date.now() + 90 * 60 * 1000); // 90 min ahead
   const q = query(
     collection(db, "bookings"),
     where("status", "==", "paid"),
-    where("slotStart", ">=", now),
-    where("slotStart", "<=", soon),
+    where("slotStart", ">=", windowStart),
+    where("slotStart", "<=", windowEnd),
     orderBy("slotStart", "asc")
   );
   return onSnapshot(q, (snap) =>
