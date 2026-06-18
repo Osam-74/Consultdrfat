@@ -73,6 +73,21 @@ export async function getActiveBookings(): Promise<Booking[]> {
     .filter((b) => b.status !== "cancelled");
 }
 
+// Fetch up to `limit` most-recent bookings for the currently signed-in client.
+// Ordered newest-first so the caller can slice to the top N.
+export async function getClientBookings(clientId: string, limit = 6): Promise<Booking[]> {
+  const q = query(
+    collection(db, "bookings"),
+    where("clientId", "==", clientId),
+    orderBy("slotStart", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+    .filter((b) => b.status !== "cancelled")
+    .slice(0, limit);
+}
+
 export async function createBooking(b: Omit<Booking, "id" | "createdAt">): Promise<string> {
   const ref = await addDoc(collection(db, "bookings"), { ...b, createdAt: serverTimestamp() });
   return ref.id;
