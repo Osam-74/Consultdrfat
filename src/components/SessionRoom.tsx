@@ -6,6 +6,7 @@ import {
   watchSession, watchMessages, ensureSession, startSession, completeSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
+  getBookingById,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
@@ -73,20 +74,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t); }, []);
   useEffect(() => { msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight }); }, [messages.length]);
 
-  // Grab client info from system messages (populated when booking was created)
+  // Load client info directly from the booking document (already stored at payment time)
   useEffect(() => {
     if (!isPract) return;
-    // Look for a system message that carries client metadata (we'll send one on session start)
-    const sys = messages.find(m => m.from === "system" && m.text.startsWith("CLIENT_META:"));
-    if (sys) {
-      try {
-        const data = JSON.parse(sys.text.slice("CLIENT_META:".length));
-        setClientEmail(data.email ?? "");
-        setClientName(data.name ?? "");
-        setClientUid(data.uid ?? "");
-      } catch { /* ignore */ }
-    }
-  }, [messages, isPract]);
+    getBookingById(bookingId).then((b) => {
+      if (!b) return;
+      setClientEmail(b.clientEmail ?? "");
+      setClientName(b.clientName ?? "");
+      setClientUid(b.clientId ?? "");
+    }).catch(() => {});
+  }, [bookingId, isPract]);
 
   // ── Practitioner file upload handler ──
   const handlePractFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,10 +165,17 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     // so changing track.enabled above is sufficient — no need to touch senders.
   };
 
+  // ── Full media teardown on unmount ───────────────────────────────────
   useEffect(() => () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    localStreamRef.current?.getTracks().forEach((t) => t.stop());
-    voiceRef.current?.stop();
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+    localStreamRef.current = null;
+    voiceRef.current?.stop().catch(() => {});
+    voiceRef.current = null;
+    if (remoteAudioRef.current) {
+      try { remoteAudioRef.current.pause(); } catch {}
+      try { remoteAudioRef.current.srcObject = null; } catch {}
+    }
   }, []);
 
   // ── Auto-join voice the moment session goes live ──────────────────────
@@ -189,15 +193,34 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status]);
 
-  // ── Redirect on session complete ──
+  // ── Teardown + redirect on session complete ──────────────────────────
   useEffect(() => {
     if (!session) return;
     if (session.status !== "complete") return;
-    // Stop all media immediately
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+
+    // ── Kill ALL audio/voice immediately ──
+    // 1. Cancel animation frame (mic meter)
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+
+    // 2. Stop every local media track
+    localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+    localStreamRef.current = null;
+
+    // 3. Stop WebRTC peer connection (closes ICE transport + remote track)
     voiceRef.current?.stop().catch(() => {});
-    // Give them a moment to see the final state, then redirect
+    voiceRef.current = null;
+
+    // 4. Kill the remote audio element — detach srcObject and pause
+    if (remoteAudioRef.current) {
+      try { remoteAudioRef.current.pause(); } catch {}
+      try { remoteAudioRef.current.srcObject = null; } catch {}
+    }
+
+    // 5. Update UI state
+    setVoiceLive(false);
+    setMicOn(false);
+
+    // Redirect after a brief "session complete" screen
     const timer = setTimeout(() => {
       if (isPract) {
         window.location.href = "/p-dfta";
@@ -383,7 +406,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           <div className="chat">
             <div className="msgs" ref={msgsRef}>
               {messages
-                .filter(m => !m.text.startsWith("CLIENT_META:")) // hide internal metadata msgs
+                .filter(m => !m.text.startsWith("CLIENT_META:"))
                 .map((m) => {
                   const cls = m.from === "system" ? "system" : m.from === role ? "mine" : "theirs";
                   const isImage = m.fileUrl && m.fileType?.startsWith("image/");

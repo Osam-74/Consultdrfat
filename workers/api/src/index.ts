@@ -29,10 +29,12 @@ export interface Env {
 
 // ─── CORS helpers ───────────────────────────────────────────────────────────
 
-const cors = (origin: string) => ({
-  "Access-Control-Allow-Origin": origin || "*",
+const cors = (_origin: string) => ({
+  // Allow any origin — the worker is protected by Firebase ID-token verification
+  // and Paystack secret keys, so open CORS is safe here.
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type,Authorization",
 });
 
 function json(data: unknown, env: Env, status = 200) {

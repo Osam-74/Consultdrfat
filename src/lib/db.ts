@@ -94,6 +94,13 @@ export async function createBooking(b: Omit<Booking, "id" | "createdAt">): Promi
   const ref = await addDoc(collection(db, "bookings"), { ...b, createdAt: serverTimestamp() });
   return ref.id;
 }
+
+/** Fetch a single booking by its document id */
+export async function getBookingById(bookingId: string): Promise<Booking | null> {
+  const snap = await getDoc(doc(db, "bookings", bookingId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as Omit<Booking, "id">) };
+}
 export async function markBookingPaid(id: string, paystackRef: string) {
   await updateDoc(doc(db, "bookings", id), { status: "paid", paystackRef });
 }
