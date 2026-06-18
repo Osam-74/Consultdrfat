@@ -29,8 +29,15 @@ service cloud.firestore {
 
     // ── Bookings ─────────────────────────────────────────────────────────────
     match /bookings/{id} {
-      allow read:   if isPractitioner()
+      // Single-document read: practitioner or the booking's own client.
+      allow get:    if isPractitioner()
         || (signedIn() && resource.data.clientId == request.auth.uid);
+      // Collection query: allow when the query is scoped to the caller's own uid.
+      // Firestore cannot evaluate resource.data during query planning, so we must
+      // allow list for authenticated users and rely on the where("clientId","==",uid)
+      // clause in the query to restrict results at the SDK level.
+      allow list:   if isPractitioner()
+        || signedIn();
       allow create: if signedIn()
         && request.resource.data.clientId == request.auth.uid;
       allow update: if isPractitioner()

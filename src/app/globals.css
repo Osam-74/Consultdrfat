@@ -346,6 +346,8 @@ img { max-width: 100%; height: auto; display: block; }
 .page-head h2 { font-size: clamp(20px, 3vw, 26px); margin-bottom: 5px; }
 .page-head p { color: var(--muted); font-size: 14px; }
 .book-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; align-items: start; margin: 18px 0 48px; min-width: 0; }
+/* Left column wraps calendar + sessions panel as a vertical flex stack */
+.book-grid > div:first-child { display: flex; flex-direction: column; gap: 0; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
 .panel-head h3 { font-size: 15px; color: var(--navy); font-family: var(--font-pjs), sans-serif; font-weight: 700; }
 .windownote { font-size: 11px; color: var(--muted); background: var(--sky-soft); border: 1px solid #C8DFF0; padding: 3px 10px; border-radius: 999px; font-weight: 500; }
@@ -900,6 +902,9 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .conditions-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .footer-inner { grid-template-columns: 1fr; gap: 24px; }
   .book-grid { grid-template-columns: 1fr; gap: 14px; width: 100%; }
+  /* On mobile: sessions panel floats above the calendar */
+  .book-grid > div:first-child { flex-direction: column-reverse; }
+  .book-grid > div:first-child .recent-sessions-panel { order: -1; }
   .slots { grid-template-columns: repeat(3, 1fr); gap: 6px; }
 
   /* Meet teaser */

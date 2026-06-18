@@ -92,7 +92,10 @@ export default function BookPage() {
             if (items.length >= 6) break;
           }
           setRecentItems(items);
-        } catch { /* non-fatal */ }
+        } catch (err) {
+          // Log so we can trace Firestore permission / index errors in the console
+          console.error("[recent sessions] failed to load:", err);
+        }
         setRecentLoading(false);
       }
     })();
@@ -205,70 +208,6 @@ export default function BookPage() {
           <p>Available slots for the next {settings.bookingWindowDays} days — Mon–Sat. Select a day, pick a time, and confirm below.</p>
         </div>
 
-        {/* ── RECENT SESSIONS PANEL ── */}
-        {user && (
-          <div className="recent-sessions-panel">
-            <div className="recent-panel-header">
-              <span className="recent-panel-title">🕐 Your Sessions</span>
-              {recentLoading && <span className="recent-loading">Loading…</span>}
-            </div>
-
-            {!recentLoading && recentItems.length === 0 && (
-              <div className="recent-empty">
-                <span>📋</span>
-                <span>No sessions yet — book your first consultation below.</span>
-              </div>
-            )}
-
-            {recentItems.length > 0 && (
-              <div className="recent-list">
-                {recentItems.map(({ booking: bk, sessionStatus, session }) => {
-                  const start = bk.slotStart.toDate();
-                  const isLive = sessionStatus === "live";
-                  const isUpcoming = sessionStatus === "upcoming";
-                  const isDone = sessionStatus === "completed";
-                  // Check if session was started but might be interruptible (idle but slot time already passed + within 2h)
-                  const slotMs = bk.slotStart.toMillis();
-                  const nowMs = Date.now();
-                  const isResumable = !isLive && !isUpcoming && (nowMs - slotMs) < 2 * 60 * 60 * 1000;
-
-                  return (
-                    <div key={bk.id} className={`recent-row ${isLive ? "recent-live" : isUpcoming ? "recent-upcoming" : "recent-done"}`}>
-                      <div className="recent-row-left">
-                        {isLive && <span className="recent-live-dot" />}
-                        <div className="recent-row-info">
-                          <span className="recent-row-date">{fmtSlot(start)}</span>
-                          {bk.topic && <span className="recent-row-topic">{bk.topic}</span>}
-                        </div>
-                      </div>
-                      <div className="recent-row-right">
-                        <span className={`recent-badge ${isLive ? "rb-live" : isUpcoming ? "rb-upcoming" : "rb-done"}`}>
-                          {isLive ? "● Live" : isUpcoming ? "Upcoming" : "Completed"}
-                        </span>
-                        {isLive && (
-                          <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-primary">
-                            Rejoin →
-                          </Link>
-                        )}
-                        {isUpcoming && (
-                          <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost">
-                            Join Room →
-                          </Link>
-                        )}
-                        {isResumable && !isLive && !isUpcoming && (
-                          <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost" style={{ borderColor: "var(--gold)", color: "var(--gold)" }}>
-                            Resume →
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── BOOKING GRID ── */}
         <div className="book-grid">
           {/* Calendar */}
@@ -313,7 +252,69 @@ export default function BookPage() {
             </div>
           </div>
 
-          {/* Summary panel */}
+          {/* ── RECENT SESSIONS PANEL — below calendar on desktop, above on mobile ── */}
+            {user && (
+              <div className="recent-sessions-panel" style={{ marginTop: 20 }}>
+                <div className="recent-panel-header">
+                  <span className="recent-panel-title">🕐 Your Sessions</span>
+                  {recentLoading && <span className="recent-loading">Loading…</span>}
+                </div>
+
+                {!recentLoading && recentItems.length === 0 && (
+                  <div className="recent-empty">
+                    <span>📋</span>
+                    <span>No sessions yet — book your first consultation below.</span>
+                  </div>
+                )}
+
+                {recentItems.length > 0 && (
+                  <div className="recent-list">
+                    {recentItems.map(({ booking: bk, sessionStatus }) => {
+                      const start = bk.slotStart.toDate();
+                      const isLive = sessionStatus === "live";
+                      const isUpcoming = sessionStatus === "upcoming";
+                      const slotMs = bk.slotStart.toMillis();
+                      const nowMs = Date.now();
+                      const isResumable = !isLive && !isUpcoming && (nowMs - slotMs) < 2 * 60 * 60 * 1000;
+
+                      return (
+                        <div key={bk.id} className={`recent-row ${isLive ? "recent-live" : isUpcoming ? "recent-upcoming" : "recent-done"}`}>
+                          <div className="recent-row-left">
+                            {isLive && <span className="recent-live-dot" />}
+                            <div className="recent-row-info">
+                              <span className="recent-row-date">{fmtSlot(start)}</span>
+                              {bk.topic && <span className="recent-row-topic">{bk.topic}</span>}
+                            </div>
+                          </div>
+                          <div className="recent-row-right">
+                            <span className={`recent-badge ${isLive ? "rb-live" : isUpcoming ? "rb-upcoming" : "rb-done"}`}>
+                              {isLive ? "● Live" : isUpcoming ? "Upcoming" : "Completed"}
+                            </span>
+                            {isLive && (
+                              <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-primary">
+                                Rejoin →
+                              </Link>
+                            )}
+                            {isUpcoming && (
+                              <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost">
+                                Join Room →
+                              </Link>
+                            )}
+                            {isResumable && !isLive && !isUpcoming && (
+                              <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost" style={{ borderColor: "var(--gold)", color: "var(--gold)" }}>
+                                Resume →
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+          {/* Summary panel — on desktop this stays in column 2 of the grid */}
           <div className="panel" style={{ minWidth: 0, overflow: "hidden" }}>
             <div className="panel-head"><h3>🩺 Your Consultation</h3></div>
 
