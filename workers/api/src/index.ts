@@ -23,6 +23,8 @@ export interface Env {
   ALLOW_ORIGIN: string;        // e.g. https://consultdrfat.pages.dev
   FIREBASE_PROJECT_ID: string; // e.g. consultdrfat
   FIREBASE_SA_JSON: string;    // full service-account JSON string
+  SESSION_FILES: R2Bucket;     // R2 bucket for session file uploads
+  R2_PUBLIC_BASE: string;      // e.g. https://pub-xxxx.r2.dev (set via wrangler secret)
 }
 
 // ─── CORS helpers ───────────────────────────────────────────────────────────
@@ -264,6 +266,56 @@ export default {
       const data = (await r.json()) as { iceServers?: unknown };
       const iceServers = data?.iceServers ? [data.iceServers] : fallback.iceServers;
       return json({ iceServers }, env);
+    }
+
+    // ── File upload → R2 ──────────────────────────────────────────────────────
+    // POST /upload  (multipart/form-data)
+    //   field "file"      → the binary file
+    //   field "bookingId" → used to namespace the R2 key
+    // Returns: { ok: true, url: "https://pub-xxxx.r2.dev/session-files/..." }
+    if (url.pathname === "/upload" && req.method === "POST") {
+      if (!env.SESSION_FILES) {
+        return json({ ok: false, error: "R2 bucket not configured" }, env, 503);
+      }
+      if (!env.R2_PUBLIC_BASE) {
+        return json({ ok: false, error: "R2_PUBLIC_BASE secret not set" }, env, 503);
+      }
+
+      let formData: FormData;
+      try {
+        formData = await req.formData();
+      } catch {
+        return json({ ok: false, error: "Could not parse form data" }, env, 400);
+      }
+
+      const fileEntry = formData.get("file");
+      const bookingId = (formData.get("bookingId") as string | null) ?? "unknown";
+
+      if (!fileEntry || typeof fileEntry === "string") {
+        return json({ ok: false, error: "No file provided" }, env, 400);
+      }
+
+      const file = fileEntry as File;
+
+      // 20 MB hard cap
+      if (file.size > 20 * 1024 * 1024) {
+        return json({ ok: false, error: "File exceeds 20 MB limit" }, env, 413);
+      }
+
+      // Sanitise filename and build R2 key
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const key = `session-files/${bookingId}/${Date.now()}_${safeName}`;
+
+      const bytes = await file.arrayBuffer();
+      await env.SESSION_FILES.put(key, bytes, {
+        httpMetadata: {
+          contentType: file.type || "application/octet-stream",
+          contentDisposition: `inline; filename="${safeName}"`,
+        },
+      });
+
+      const publicUrl = `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`;
+      return json({ ok: true, url: publicUrl }, env, 200);
     }
 
     return new Response("Not found", { status: 404, headers: cors(env.ALLOW_ORIGIN) });

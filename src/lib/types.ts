@@ -82,8 +82,8 @@ export interface Message {
   from: Role | "system";
   text: string;
   t: number;
-  // File attachment fields — stored as base64 data URL directly in Firestore
-  fileData?: string;   // base64 data URL, e.g. "data:image/png;base64,..."
+  // File attachment — URL points to Cloudflare R2 public CDN
+  fileUrl?: string;    // public CDN URL (R2)
   fileType?: string;   // MIME type e.g. "image/png", "application/pdf"
   fileName?: string;   // original filename
   fileSize?: number;   // size in bytes

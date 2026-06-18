@@ -167,11 +167,11 @@ export async function sendMessage(
   bookingId: string,
   from: Role | "system",
   text: string,
-  file?: { data: string; type: string; name: string; size: number }
+  file?: { url: string; type: string; name: string; size: number }
 ) {
   const payload: Record<string, unknown> = { from, text, t: Date.now() };
   if (file) {
-    payload.fileData = file.data;
+    payload.fileUrl  = file.url;
     payload.fileType = file.type;
     payload.fileName = file.name;
     payload.fileSize = file.size;
@@ -179,14 +179,28 @@ export async function sendMessage(
   await addDoc(collection(db, "sessions", bookingId, "messages"), payload);
 }
 
-/** Read a File as a base64 data URL (runs in browser only). */
-export function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+/**
+ * Upload a session file to the Cloudflare Worker → R2 bucket.
+ * Returns the public CDN URL.
+ */
+export async function uploadSessionFile(
+  bookingId: string,
+  file: File,
+  apiBase: string
+): Promise<{ url: string; type: string; name: string; size: number }> {
+  if (!apiBase) throw new Error("API_BASE not configured");
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("bookingId", bookingId);
+
+  const res = await fetch(`${apiBase}/upload`, { method: "POST", body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error ?? `Upload failed (${res.status})`);
+  }
+  const data = await res.json() as { ok: boolean; url: string };
+  return { url: data.url, type: file.type, name: file.name, size: file.size };
 }
 
 /* ─────────────────────── Email Notifications ───────────────────────

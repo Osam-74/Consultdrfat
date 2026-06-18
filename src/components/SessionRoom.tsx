@@ -5,8 +5,9 @@ import Link from "next/link";
 import {
   watchSession, watchMessages, ensureSession, startSession, completeSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
-  createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, readFileAsDataURL,
+  createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
 } from "@/lib/db";
+import { API_BASE } from "@/lib/firebase";
 import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
@@ -205,25 +206,24 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     }
   };
 
-  // ── File attachment (client) — base64 stored in Firestore ──
+  // ── File attachment — uploaded to Cloudflare R2 via Worker ──
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const MAX = 2 * 1024 * 1024; // 2 MB cap for Firestore doc size
-    if (file.size > MAX) { alert("File must be under 2 MB."); return; }
+    const MAX = 20 * 1024 * 1024; // 20 MB cap
+    if (file.size > MAX) { alert("File must be under 20 MB."); return; }
     setUploading(true);
     try {
-      const dataUrl = await readFileAsDataURL(file);
+      const uploaded = await uploadSessionFile(bookingId, file, API_BASE);
       const isImage = file.type.startsWith("image/");
       const label = isImage
         ? `🖼️ ${file.name}`
         : `📎 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
-      await sendMessage(bookingId, role, label, {
-        data: dataUrl, type: file.type, name: file.name, size: file.size,
-      });
+      await sendMessage(bookingId, role, label, uploaded);
     } catch (err) {
       console.error("File share error:", err);
-      alert("Failed to share file. Please try again.");
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      alert(`Could not share file: ${msg}`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -345,26 +345,25 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 .filter(m => !m.text.startsWith("CLIENT_META:")) // hide internal metadata msgs
                 .map((m) => {
                   const cls = m.from === "system" ? "system" : m.from === role ? "mine" : "theirs";
-                  const isImage = m.fileData && m.fileType?.startsWith("image/");
-                  const isDoc   = m.fileData && !isImage;
+                  const isImage = m.fileUrl && m.fileType?.startsWith("image/");
+                  const isDoc   = m.fileUrl && !isImage;
                   return (
                     <div key={m.id} className={"msg " + cls}>
-                      {/* Inline image preview */}
+                      {/* Inline image preview — full res from R2 CDN */}
                       {isImage && (
                         <div className="msg-attachment">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={m.fileData}
+                            src={m.fileUrl}
                             alt={m.fileName ?? "shared image"}
                             className="msg-img"
-                            onClick={() => {
-                              const w = window.open("", "_blank");
-                              if (w) { w.document.write(`<img src="${m.fileData}" style="max-width:100%">`); }
-                            }}
+                            onClick={() => window.open(m.fileUrl, "_blank")}
                           />
                           <a
                             className="msg-dl-link"
-                            href={m.fileData}
+                            href={m.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             download={m.fileName ?? "image"}
                           >
                             ⬇ Download {m.fileName}
@@ -376,7 +375,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                         <div className="msg-attachment">
                           <a
                             className="msg-dl-link"
-                            href={m.fileData}
+                            href={m.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             download={m.fileName ?? "file"}
                           >
                             📄 {m.fileName} ({m.fileSize ? (m.fileSize/1024).toFixed(0)+"KB" : ""}) ⬇
