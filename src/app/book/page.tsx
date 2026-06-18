@@ -210,7 +210,8 @@ export default function BookPage() {
 
         {/* ── BOOKING GRID ── */}
         <div className="book-grid">
-          {/* Calendar */}
+          {/* ── LEFT COLUMN: Calendar + Sessions ── */}
+          <div className="book-left-col">
           <div className="panel">
             <div className="panel-head">
               <h3>📅 Available Days</h3>
@@ -275,7 +276,7 @@ export default function BookPage() {
                       const isUpcoming = sessionStatus === "upcoming";
                       const slotMs = bk.slotStart.toMillis();
                       const nowMs = Date.now();
-                      const isResumable = !isLive && !isUpcoming && (nowMs - slotMs) < 2 * 60 * 60 * 1000;
+                      const isResumable = !isLive && !isUpcoming && (nowMs - slotMs) < 20 * 60 * 1000;
 
                       return (
                         <div key={bk.id} className={`recent-row ${isLive ? "recent-live" : isUpcoming ? "recent-upcoming" : "recent-done"}`}>
@@ -314,7 +315,8 @@ export default function BookPage() {
               </div>
             )}
 
-          {/* Summary panel — on desktop this stays in column 2 of the grid */}
+          </div>{/* /book-left-col */}
+          {/* ── RIGHT COLUMN: Consultation + Payment ── */}
           <div className="panel" style={{ minWidth: 0, overflow: "hidden" }}>
             <div className="panel-head"><h3>🩺 Your Consultation</h3></div>
 

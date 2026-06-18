@@ -6,7 +6,7 @@ export interface PracticeSettings {
   practitionerName: string;
   currency: "NGN";
   priceNGN: number; // price per standard session, in Naira
-  sessionLengthMin: number; // default 30
+  sessionLengthMin: number; // default 15
   bufferMin: number; // gap between sessions
   bookingWindowDays: number; // hard limit, default 14
   timezone: string; // e.g. "Africa/Lagos"
@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: PracticeSettings = {
   practitionerName: "Dr. Fat",
   currency: "NGN",
   priceNGN: 15000,
-  sessionLengthMin: 30,
+  sessionLengthMin: 15,
   bufferMin: 10,
   bookingWindowDays: 14,
   timezone: "Africa/Lagos",
