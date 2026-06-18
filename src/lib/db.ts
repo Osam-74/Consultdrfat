@@ -90,21 +90,6 @@ export async function getActiveBookings(clientUid?: string): Promise<Booking[]> 
   }
 }
 
-// Fetch up to `limit` most-recent bookings for the currently signed-in client.
-// Ordered newest-first so the caller can slice to the top N.
-export async function getClientBookings(clientId: string, limit = 6): Promise<Booking[]> {
-  const q = query(
-    collection(db, "bookings"),
-    where("clientId", "==", clientId),
-    orderBy("slotStart", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
-    .filter((b) => b.status !== "cancelled")
-    .slice(0, limit);
-}
-
 export async function createBooking(b: Omit<Booking, "id" | "createdAt">): Promise<string> {
   const ref = await addDoc(collection(db, "bookings"), { ...b, createdAt: serverTimestamp() });
   return ref.id;
@@ -497,7 +482,24 @@ export async function setAttachmentsEnabled(bookingId: string, enabled: boolean)
 
 /* ─────────────────────── Client booking history ─────────────────────── */
 
-// getClientBookings is defined above (handles both upcoming and past, with limit)
+/**
+ * Get all paid bookings for a client (for booking history tab).
+ * Ordered newest-first. Includes past sessions.
+ */
+export async function getClientBookings(clientUid: string): Promise<Booking[]> {
+  // Query by clientId only + sort by slotStart desc.
+  // Filtering by status here would require a 3-field composite index that isn't
+  // always deployed; instead we filter client-side to exclude cancelled bookings.
+  const q = query(
+    collection(db, "bookings"),
+    where("clientId", "==", clientUid),
+    orderBy("slotStart", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+    .filter((b) => b.status !== "cancelled");
+}
 
 /**
  * Get the live session doc for a booking, if it exists and is still "live".
