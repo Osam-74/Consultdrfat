@@ -42,11 +42,10 @@ export async function startVoice(opts: {
   const { bookingId, role, localStream, onRemote, onState } = opts;
   const pc = new RTCPeerConnection({ iceServers: await getIceServers() });
 
-  // Add tracks to peer connection — explicitly ensure they are enabled
-  localStream.getAudioTracks().forEach((t) => {
-    t.enabled = true; // ensure not muted before adding
-    pc.addTrack(t, localStream);
-  });
+  // Add all tracks to the peer connection.
+  // NOTE: Do NOT create an AudioContext on this stream before calling addTrack —
+  // on some browsers createMediaStreamSource() interferes with WebRTC audio.
+  localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
   const remote = new MediaStream();
   pc.ontrack = (e) => {
     e.streams[0].getTracks().forEach((t) => remote.addTrack(t));

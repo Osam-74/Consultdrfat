@@ -87,24 +87,26 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
-
-      // Ensure all tracks are enabled from the start
-      stream.getAudioTracks().forEach(t => { t.enabled = true; });
       setMicOn(true);
-      meter(stream);
 
+      // Start WebRTC FIRST — before any AudioContext work.
+      // AudioContext.createMediaStreamSource() can reroute the stream on some
+      // browsers (especially mobile Safari/Chrome) and prevent WebRTC from
+      // receiving audio. We pass the original stream to startVoice, then
+      // meter a separate CLONE so WebRTC is never affected.
       voiceRef.current = await startVoice({
         bookingId, role, localStream: stream,
         onRemote: (remote) => {
           if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = remote;
-            // Must be called from a user gesture context — play() is safe here
-            // because joinVoice is triggered by a button click
             remoteAudioRef.current.play().catch(() => {});
           }
         },
         onState: (st) => setVoiceLive(st === "connected"),
       });
+
+      // Meter a CLONE — never the stream used by WebRTC
+      meter(stream.clone());
     } catch (err) {
       console.error("joinVoice error:", err);
       setMicOn(true); // reflect intent even if no device
@@ -131,17 +133,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     const tracks = localStreamRef.current?.getAudioTracks() ?? [];
     if (tracks.length === 0) return;
     const track = tracks[0];
-    track.enabled = !track.enabled;
-    setMicOn(track.enabled);
-
-    // Also update all senders on the peer connection so the remote side is affected
-    if (voiceRef.current) {
-      voiceRef.current.pc.getSenders().forEach(sender => {
-        if (sender.track?.kind === "audio") {
-          sender.track.enabled = track.enabled;
-        }
-      });
-    }
+    const newEnabled = !track.enabled;
+    track.enabled = newEnabled;
+    setMicOn(newEnabled);
+    // The RTCRtpSender holds a reference to the same MediaStreamTrack object,
+    // so changing track.enabled above is sufficient — no need to touch senders.
   };
 
   useEffect(() => () => {
@@ -149,6 +145,26 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     voiceRef.current?.stop();
   }, []);
+
+  // ── Redirect on session complete ──
+  useEffect(() => {
+    if (!session) return;
+    if (session.status !== "complete") return;
+    // Stop all media immediately
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    voiceRef.current?.stop().catch(() => {});
+    // Give them a moment to see the final state, then redirect
+    const timer = setTimeout(() => {
+      if (isPract) {
+        window.location.href = "/p-dfta";
+      } else {
+        window.location.href = "/";
+      }
+    }, 3500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status]);
 
   // ── Discount code generation (practitioner) ──
   const sendDiscount = async () => {
@@ -210,9 +226,25 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   if (!session) return <div className="room-bg"><div className="center"><p style={{ color: "#fff" }}>Connecting…</p></div></div>;
 
+  // Show redirect screen when complete
+  if (session.status === "complete") {
+    return (
+      <div className="room-bg" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+        <div style={{ fontSize: 52 }}>✅</div>
+        <h2 style={{ color: "#fff", margin: 0 }}>Session complete</h2>
+        <p style={{ color: "rgba(255,255,255,.6)", margin: 0, fontSize: 15 }}>
+          {isPract ? "Returning to your dashboard…" : "Returning to home…"}
+        </p>
+        <div style={{ width: 200, height: 4, background: "rgba(255,255,255,.15)", borderRadius: 99, overflow: "hidden", marginTop: 8 }}>
+          <div style={{ height: "100%", background: "var(--teal)", borderRadius: 99, animation: "fillBar 3.2s linear forwards" }} />
+        </div>
+      </div>
+    );
+  }
+
   const remaining = session.endAt ? session.endAt.toMillis() - now : session.durationMin * 60_000;
   const timerCls = remaining <= 60_000 ? "crit" : remaining <= 5 * 60_000 ? "warn" : "";
-  const complete = session.status === "complete" || (session.status === "live" && remaining <= 0);
+  const complete = (session.status as string) === "complete" || (session.status === "live" && remaining <= 0);
   const offer = session.offer;
   const priceFor = (min: number) => Math.round(pricePerMin * min);
   const attachmentsOn = session.attachmentsEnabled ?? false;

@@ -1104,6 +1104,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 .timer.warn { color: #F5D08A; }
 .timer.crit { color: #F87171; animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0.4; } }
+@keyframes fillBar { from { width: 0% } to { width: 100% } }
 .tl {
   font-size: 11px;
   color: rgba(255,255,255,.45);
