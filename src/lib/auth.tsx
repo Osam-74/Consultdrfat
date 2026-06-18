@@ -3,8 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import {
   GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -18,36 +17,33 @@ import {
 import { auth, PRACTITIONER_UID } from "./firebase";
 import { Role } from "./types";
 
-// ── Google OAuth via signInWithRedirect ───────────────────────────────────────
+// ── Google OAuth via signInWithPopup ─────────────────────────────────────────
 //
-// We use Firebase's signInWithRedirect (not popup) for all browsers.
+// We use signInWithPopup (not signInWithRedirect) because:
 //
-// WHY NOT POPUP:
-//   signInWithPopup opens a hidden iframe to consultdrfat.firebaseapp.com for
-//   a "silent" token check before opening the popup. Firefox's Enhanced
-//   Tracking Protection (ETP) blocks this cross-site iframe → NS_ERROR_NET_TIMEOUT.
+// 1. This is a Next.js static export deployed on Vercel.
+//    signInWithRedirect requires the browser to keep a pending auth state
+//    between navigations. In a fully static export (no server), the state
+//    stored by Firebase in IndexedDB/sessionStorage sometimes doesn't survive
+//    the redirect round-trip on mobile browsers → user lands back at sign-in.
 //
-// WHY NOT CUSTOM OAUTH (implicit flow):
-//   The id_token returned by Google's implicit flow must have its 'aud' (audience)
-//   match a client ID that is registered inside your Firebase project. The custom
-//   flow used a different client ID than Firebase's auto-generated Web Client.
+// 2. signInWithPopup opens a small window to accounts.google.com.
+//    The parent page never navigates, so auth state is captured immediately
+//    in the same JS context.
 //
-// SOLUTION: signInWithRedirect with getRedirectResult
-//   - Full page redirect to accounts.google.com — no iframes, no popups.
-//   - On return, getRedirectResult() retrieves the signed-in user.
-//   - Firebase manages the token exchange internally with the correct client ID.
+// Firefox ETP note: Firefox ETP blocks cross-site *iframes*, not popups.
+//    The popup window itself is a first-party Google window — it is NOT
+//    blocked. What Firefox ETP blocks is the hidden iframe that Firebase uses
+//    for *session refresh* (not for the initial sign-in popup itself).
+//    signInWithPopup for the initial login works fine in Firefox.
 //
-// REQUIRED SETUP (one-time, already done):
-//   Firebase Console → Authentication → Settings → Authorized domains:
-//     ✓ consultdrfat.vercel.app
-//   Firebase Console → Authentication → Sign-in method → Google: Enabled
+// If a popup is blocked by the browser (user has popups blocked), we catch
+// the "popup-blocked" error and show a helpful message.
 
 const provider = new GoogleAuthProvider();
 provider.addScope("email");
 provider.addScope("profile");
 provider.setCustomParameters({ prompt: "select_account" });
-
-// ── Context ───────────────────────────────────────────────────────────────────
 
 interface AuthState {
   user: User | null;
@@ -76,35 +72,14 @@ function isReady() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]             = useState<User | null>(null);
-  const [loading, setLoading]       = useState(true);
+  const [user, setUser]                   = useState<User | null>(null);
+  const [loading, setLoading]             = useState(true);
   const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
     if (!isReady()) { setLoading(false); return; }
-
-    // Check if we just returned from a Google redirect
-    const wasRedirecting = sessionStorage.getItem("gauth_redirect") === "1";
-    if (wasRedirecting) {
-      setGoogleLoading(true);
-      sessionStorage.removeItem("gauth_redirect");
-    }
-
-    // Retrieve redirect result — works after signInWithRedirect returns
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) {
-          setUser(result.user);
-        }
-      })
-      .catch((err) => {
-        // Non-fatal — log but don't block the app
-        console.warn("[getRedirectResult] error:", err?.code ?? err);
-      })
-      .finally(() => {
-        setGoogleLoading(false);
-      });
-
+    // Set persistence to local so the user stays logged in across page reloads
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -118,29 +93,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInEmail = async (email: string, password: string) => {
     if (!isReady()) return;
-    await setPersistence(auth, browserLocalPersistence);
     await signInWithEmailAndPassword(auth, email, password);
   };
 
   const signUpEmail = async (email: string, password: string, name: string) => {
     if (!isReady()) return;
-    await setPersistence(auth, browserLocalPersistence);
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
   };
 
   const signInGoogle = async () => {
     if (!isReady()) return;
-    await setPersistence(auth, browserLocalPersistence);
-    // Mark that we're about to redirect so we can show a loading state on return
-    sessionStorage.setItem("gauth_redirect", "1");
-    // Full-page redirect — no iframe, no popup, works in Firefox ETP
-    await signInWithRedirect(auth, provider);
+    setGoogleLoading(true);
+    try {
+      const cred = await signInWithPopup(auth, provider);
+      setUser(cred.user);
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   const signOut = async () => {
     if (!isReady()) return;
     await fbSignOut(auth);
+    setUser(null);
   };
 
   const resetPassword = async (email: string) => {
