@@ -82,7 +82,9 @@ export interface Message {
   from: Role | "system";
   text: string;
   t: number;
-  fileUrl?: string;    // download URL for shared files/images
+  // File attachment fields — stored as base64 data URL directly in Firestore
+  fileData?: string;   // base64 data URL, e.g. "data:image/png;base64,..."
   fileType?: string;   // MIME type e.g. "image/png", "application/pdf"
   fileName?: string;   // original filename
+  fileSize?: number;   // size in bytes
 }

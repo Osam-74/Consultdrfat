@@ -85,7 +85,7 @@ function BookingCard({ b, onArchive }: { b: Booking; onArchive: (id: string) => 
           <div className="brow-detail-actions">
             {b.status === "paid" && (
               <Link className="btn btn-sm btn-primary" href={`/session/?id=${b.id}&role=practitioner`}>
-                🎙 Join Session
+                🚀 Start Session
               </Link>
             )}
             {isPast && (

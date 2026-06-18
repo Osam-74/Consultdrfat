@@ -1,7 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
-import { getStorage, FirebaseStorage } from "firebase/storage";
 
 // authDomain MUST be the Firebase project's own domain (not the Vercel URL).
 // This is required for signInWithPopup and signInWithRedirect to work correctly.
@@ -20,10 +19,9 @@ function safeInit(): FirebaseApp {
   return getApps().length ? getApp() : initializeApp(config);
 }
 
-export const app: FirebaseApp    = typeof window === "undefined" ? ({} as FirebaseApp)    : safeInit();
-export const auth: Auth          = typeof window === "undefined" ? ({} as Auth)          : getAuth(safeInit());
-export const db: Firestore       = typeof window === "undefined" ? ({} as Firestore)     : getFirestore(safeInit());
-export const storage: FirebaseStorage = typeof window === "undefined" ? ({} as FirebaseStorage) : getStorage(safeInit());
+export const app: FirebaseApp = typeof window === "undefined" ? ({} as FirebaseApp) : safeInit();
+export const auth: Auth       = typeof window === "undefined" ? ({} as Auth)        : getAuth(safeInit());
+export const db: Firestore    = typeof window === "undefined" ? ({} as Firestore)   : getFirestore(safeInit());
 
 export const PRACTITIONER_UID    = process.env.NEXT_PUBLIC_PRACTITIONER_UID    || "";
 export const PAYSTACK_PUBLIC_KEY  = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "";

@@ -2,8 +2,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc,
   onSnapshot, query, where, orderBy, Timestamp, serverTimestamp,
 } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "./firebase";
+import { db } from "./firebase";
 import {
   PracticeSettings, DEFAULT_SETTINGS, AvailabilityTemplate, AvailabilityException,
   Booking, SessionDoc, Message, Offer, Role,
@@ -168,26 +167,26 @@ export async function sendMessage(
   bookingId: string,
   from: Role | "system",
   text: string,
-  file?: { url: string; type: string; name: string }
+  file?: { data: string; type: string; name: string; size: number }
 ) {
   const payload: Record<string, unknown> = { from, text, t: Date.now() };
   if (file) {
-    payload.fileUrl  = file.url;
+    payload.fileData = file.data;
     payload.fileType = file.type;
     payload.fileName = file.name;
+    payload.fileSize = file.size;
   }
   await addDoc(collection(db, "sessions", bookingId, "messages"), payload);
 }
 
-export async function uploadSessionFile(
-  bookingId: string,
-  file: File
-): Promise<{ url: string; type: string; name: string }> {
-  const path = `session-files/${bookingId}/${Date.now()}_${file.name}`;
-  const ref = storageRef(storage, path);
-  await uploadBytes(ref, file, { contentType: file.type });
-  const url = await getDownloadURL(ref);
-  return { url, type: file.type, name: file.name };
+/** Read a File as a base64 data URL (runs in browser only). */
+export function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 /* ─────────────────────── Email Notifications ───────────────────────

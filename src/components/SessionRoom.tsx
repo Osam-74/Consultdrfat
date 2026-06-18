@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   watchSession, watchMessages, ensureSession, startSession, completeSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
-  createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
+  createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, readFileAsDataURL,
 } from "@/lib/db";
 import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
@@ -205,20 +205,25 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     }
   };
 
-  // ── File attachment (client) ──
+  // ── File attachment (client) — base64 stored in Firestore ──
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert("File must be under 10 MB."); return; }
+    const MAX = 2 * 1024 * 1024; // 2 MB cap for Firestore doc size
+    if (file.size > MAX) { alert("File must be under 2 MB."); return; }
     setUploading(true);
     try {
-      const uploaded = await uploadSessionFile(bookingId, file);
+      const dataUrl = await readFileAsDataURL(file);
       const isImage = file.type.startsWith("image/");
-      const label = isImage ? `🖼️ Shared an image: ${file.name}` : `📎 Shared a file: ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
-      await sendMessage(bookingId, role, label, uploaded);
+      const label = isImage
+        ? `🖼️ ${file.name}`
+        : `📎 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+      await sendMessage(bookingId, role, label, {
+        data: dataUrl, type: file.type, name: file.name, size: file.size,
+      });
     } catch (err) {
       console.error("File share error:", err);
-      alert("Upload failed. Please try again.");
+      alert("Failed to share file. Please try again.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -250,7 +255,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const priceFor = (min: number) => Math.round(pricePerMin * min);
   const attachmentsOn = session.attachmentsEnabled ?? false;
 
-  const send = () => { const v = draft.trim(); if (!v) return; sendMessage(bookingId, role, v); setDraft(""); };
+  const sessionLive = session?.status === "live";
+  const send = () => {
+    if (!sessionLive) return;
+    const v = draft.trim(); if (!v) return; sendMessage(bookingId, role, v); setDraft("");
+  };
 
   const queueWarn = isPract && session.nextClientAt && chosen
     ? `Next client is booked at ${session.nextClientAt}` + (chosen >= 30 ? " — a +30 min extension may overlap." : " — a +15 min extension should still finish in time.")
@@ -309,14 +318,21 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <div className={"timer num " + timerCls}>{fmt(remaining)}</div>
             <div className="tl">{complete ? "Session time complete" : "Session time remaining"}</div>
             <div className="orb" style={{ transform: `scale(${scale})` }}>{micOn ? "🎙️" : "🎧"}</div>
-            <div className="vn">{voiceLive ? "Voice connected" : micOn ? "Mic ready" : "Join voice to talk"}</div>
+            {!sessionLive && (
+              <div className="session-not-started-banner">
+                {isPract ? "⏸ Press Start session below to begin" : "⏳ Waiting for practitioner to start the session…"}
+              </div>
+            )}
+            <div className="vn">{voiceLive ? "Voice connected" : micOn ? "Mic ready" : sessionLive ? "Join voice to talk" : "Voice locked"}</div>
             <div className="controls">
               {!localStreamRef.current
-                ? <button className="ctl" onClick={joinVoice}><span className="knob">🎧</span>Join voice</button>
-                : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute}>
+                ? <button className="ctl" onClick={joinVoice} disabled={!sessionLive} title={!sessionLive ? "Waiting for session to start…" : undefined}>
+                    <span className="knob">🎧</span>{sessionLive ? "Join voice" : "Waiting…"}
+                  </button>
+                : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute} disabled={!sessionLive}>
                     <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
                   </button>}
-              <button className="ctl danger" onClick={() => completeSession(bookingId)}>
+              <button className="ctl danger" onClick={() => completeSession(bookingId)} disabled={!sessionLive && !isPract}>
                 <span className="knob">✕</span>{isPract ? "End" : "Leave"}
               </button>
             </div>
@@ -329,49 +345,51 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 .filter(m => !m.text.startsWith("CLIENT_META:")) // hide internal metadata msgs
                 .map((m) => {
                   const cls = m.from === "system" ? "system" : m.from === role ? "mine" : "theirs";
-                  const isImage = m.fileUrl && m.fileType?.startsWith("image/");
-                  const isDoc   = m.fileUrl && !isImage;
+                  const isImage = m.fileData && m.fileType?.startsWith("image/");
+                  const isDoc   = m.fileData && !isImage;
                   return (
                     <div key={m.id} className={"msg " + cls}>
-                      {/* Render inline image if it's an image attachment */}
+                      {/* Inline image preview */}
                       {isImage && (
                         <div className="msg-attachment">
-                          <a href={m.fileUrl} target="_blank" rel="noopener noreferrer">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={m.fileUrl}
-                              alt={m.fileName ?? "shared image"}
-                              className="msg-img"
-                            />
-                          </a>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={m.fileData}
+                            alt={m.fileName ?? "shared image"}
+                            className="msg-img"
+                            onClick={() => {
+                              const w = window.open("", "_blank");
+                              if (w) { w.document.write(`<img src="${m.fileData}" style="max-width:100%">`); }
+                            }}
+                          />
                           <a
                             className="msg-dl-link"
-                            href={m.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download={m.fileName}
+                            href={m.fileData}
+                            download={m.fileName ?? "image"}
                           >
                             ⬇ Download {m.fileName}
                           </a>
                         </div>
                       )}
-                      {/* Render download link for docs/pdfs */}
+                      {/* Document download link */}
                       {isDoc && (
                         <div className="msg-attachment">
                           <a
                             className="msg-dl-link"
-                            href={m.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download={m.fileName}
+                            href={m.fileData}
+                            download={m.fileName ?? "file"}
                           >
-                            📄 {m.fileName ?? "Download file"} ⬇
+                            📄 {m.fileName} ({m.fileSize ? (m.fileSize/1024).toFixed(0)+"KB" : ""}) ⬇
                           </a>
                         </div>
                       )}
-                      {/* Always show the text label too (unless it's only an attachment) */}
+                      {/* Text label */}
                       {(!isImage && !isDoc) && <span>{m.text}</span>}
-                      {(isImage || isDoc) && <span style={{fontSize:11,opacity:.65,display:"block",marginTop:3}}>{m.text.replace(/^[🖼️📎]+\s*/,"")}</span>}
+                      {(isImage || isDoc) && (
+                        <span style={{fontSize:11,opacity:.6,display:"block",marginTop:3}}>
+                          {m.text.replace(/^[🖼️📎]+\s*/,"")}
+                        </span>
+                      )}
                       {m.from !== "system" && (
                         <div className="t">{new Date(m.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                       )}
@@ -382,12 +400,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <div className="composer">
               <input
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => sessionLive && setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send()}
-                placeholder={isPract ? "Message your client…" : "Message…"}
+                placeholder={sessionLive
+                  ? (isPract ? "Message your client…" : "Message…")
+                  : (isPract ? "Start the session to enable chat…" : "Waiting for practitioner to start…")}
+                disabled={!sessionLive}
+                style={!sessionLive ? {opacity:.45, cursor:"not-allowed"} : {}}
               />
-              {/* File attachment button for client (when practitioner enabled it) */}
-              {!isPract && attachmentsOn && (
+              {/* File attachment button for client (when practitioner enabled it AND session is live) */}
+              {!isPract && attachmentsOn && sessionLive && (
                 <>
                   <button
                     className="ctl"
@@ -407,7 +429,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   />
                 </>
               )}
-              <button onClick={send}>↑</button>
+              <button onClick={send} disabled={!sessionLive} style={!sessionLive ? {opacity:.45} : {}}>↑</button>
             </div>
           </div>
 
