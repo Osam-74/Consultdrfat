@@ -53,7 +53,7 @@ export function generateSlots(
     // Build the day's open windows: matching active templates + "extra" exceptions.
     const windows: Array<{ start: number; end: number }> = [];
     templates
-      .filter((t) => t.active && t.weekday === day.getDay())
+      .filter((t) => t.active && Number(t.weekday) === day.getDay())
       .forEach((t) => windows.push({ start: toMin(t.start), end: toMin(t.end) }));
     dayExceptions
       .filter((e) => e.type === "extra" && e.start && e.end)

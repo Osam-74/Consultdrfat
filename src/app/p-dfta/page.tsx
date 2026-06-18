@@ -343,7 +343,7 @@ export default function AdminPage() {
                   </div>
                   <div className="week-grid">
                     {[1,2,3,4,5,6,0].map(dayIdx=>{
-                      const dayTpls = templates.filter(t=>t.weekday===dayIdx && t.active);
+                      const dayTpls = templates.filter(t=>Number(t.weekday)===dayIdx && t.active);
                       return (
                         <div key={dayIdx} className={"week-day-card"+(dayTpls.length>0?" active":"")}>
                           <div className="week-day-head">

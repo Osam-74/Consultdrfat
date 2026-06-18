@@ -36,7 +36,14 @@ export async function saveSettings(s: PracticeSettings) {
 /* ─────────────────────── Availability ──────────────────────── */
 export async function getTemplates(): Promise<AvailabilityTemplate[]> {
   const snap = await getDocs(collection(db, "availabilityTemplates"));
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AvailabilityTemplate, "id">) }));
+  return snap.docs.map((d) => {
+    const data = d.data() as Omit<AvailabilityTemplate, "id">;
+    return {
+      id: d.id,
+      ...data,
+      weekday: Number(data.weekday), // Firestore may return as string — coerce to number
+    };
+  });
 }
 export async function saveTemplate(t: Omit<AvailabilityTemplate, "id"> & { id?: string }) {
   if (t.id) {
