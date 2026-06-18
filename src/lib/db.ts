@@ -334,3 +334,148 @@ export async function sendReminderEmail(
     },
   });
 }
+
+/* ─────────────────────── Discount Codes ─────────────────────── */
+
+export interface DiscountCode {
+  id: string;
+  code: string;           // e.g. "DRFAT-3X7K"
+  percent: number;        // 10 | 20 | 30 | 50 etc.
+  createdFor: string;     // client email
+  createdForName: string;
+  createdForUid: string;
+  bookingId: string;      // session where it was generated
+  used: boolean;
+  usedAt?: Timestamp;
+  usedInBookingId?: string;
+  createdAt: Timestamp;
+  expiresAt: Timestamp;   // 90 days from creation
+}
+
+/** Generate a short alphanumeric code like "DRFAT-3X7K" */
+function makeCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no confusing 0/O/1/I
+  let suffix = "";
+  for (let i = 0; i < 4; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
+  return `DRFAT-${suffix}`;
+}
+
+/**
+ * Generate and store a discount code for a client.
+ * Called from the practitioner during a live session.
+ * Returns the saved DiscountCode (with id).
+ */
+export async function createDiscountCode(opts: {
+  percent: number;
+  clientEmail: string;
+  clientName: string;
+  clientUid: string;
+  bookingId: string;
+}): Promise<DiscountCode> {
+  const now = Timestamp.now();
+  const expires = Timestamp.fromMillis(now.toMillis() + 90 * 24 * 60 * 60 * 1000);
+  const code = makeCode();
+  const payload = {
+    code,
+    percent: opts.percent,
+    createdFor: opts.clientEmail,
+    createdForName: opts.clientName,
+    createdForUid: opts.clientUid,
+    bookingId: opts.bookingId,
+    used: false,
+    createdAt: now,
+    expiresAt: expires,
+  };
+  const ref = await addDoc(collection(db, "discountCodes"), payload);
+  return { id: ref.id, ...payload };
+}
+
+/**
+ * Validate a discount code for a given client email.
+ * Returns the code doc if valid, null if invalid/expired/used/wrong client.
+ */
+export async function validateDiscountCode(
+  code: string,
+  clientEmail: string
+): Promise<DiscountCode | null> {
+  const q = query(
+    collection(db, "discountCodes"),
+    where("code", "==", code.trim().toUpperCase()),
+    where("used", "==", false)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = { id: snap.docs[0].id, ...snap.docs[0].data() } as DiscountCode;
+  if (d.createdFor.toLowerCase() !== clientEmail.toLowerCase()) return null;
+  if (d.expiresAt.toMillis() < Date.now()) return null;
+  return d;
+}
+
+/** Mark a discount code as used */
+export async function redeemDiscountCode(codeId: string, bookingId: string) {
+  await updateDoc(doc(db, "discountCodes", codeId), {
+    used: true,
+    usedAt: Timestamp.now(),
+    usedInBookingId: bookingId,
+  });
+}
+
+/** Queue a discount notification email */
+export async function sendDiscountEmail(opts: {
+  toEmail: string;
+  clientName: string;
+  code: string;
+  percent: number;
+  expiresAt: Date;
+}) {
+  const exp = opts.expiresAt.toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" });
+  await queueEmail({
+    to: opts.toEmail,
+    message: {
+      subject: `🎁 You've received a ${opts.percent}% discount from Dr. Fat`,
+      html: `
+<!DOCTYPE html>
+<html>
+<body style="font-family:'Segoe UI',Arial,sans-serif;background:#f8f8f6;margin:0;padding:0">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(11,43,74,.10)">
+    <div style="background:linear-gradient(135deg,#0B2B4A,#0E8A7A);padding:28px 32px;text-align:center">
+      <div style="font-size:42px;margin-bottom:6px">🎁</div>
+      <h1 style="color:#fff;font-size:22px;margin:0;font-family:Georgia,serif">You've got a discount!</h1>
+      <p style="color:rgba(255,255,255,.75);font-size:13px;margin:8px 0 0">A special offer from your practitioner</p>
+    </div>
+    <div style="padding:28px 32px">
+      <p style="font-size:15px;color:#0E1C2A;margin:0 0 12px">Hi ${opts.clientName},</p>
+      <p style="font-size:14px;color:#5A6A78;line-height:1.6;margin:0 0 20px">
+        Dr. Fat has sent you a special discount for your next consultation:
+      </p>
+      <div style="background:#F0FAF9;border-radius:14px;padding:24px;text-align:center;margin-bottom:20px;border:2px dashed #0E8A7A">
+        <div style="font-size:13px;color:#5A6A78;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Your discount code</div>
+        <div style="font-size:32px;font-weight:800;color:#0E8A7A;letter-spacing:.12em;font-family:monospace">${opts.code}</div>
+        <div style="font-size:28px;font-weight:700;color:#0B2B4A;margin-top:8px">${opts.percent}% OFF</div>
+        <div style="font-size:12px;color:#8FA0B0;margin-top:8px">Valid until ${exp}</div>
+      </div>
+      <p style="font-size:13px;color:#5A6A78;margin:0 0 16px;line-height:1.6">
+        Enter this code in the <strong>"Discount code"</strong> field when booking your next session at
+        <a href="https://consultdrfat.vercel.app/book/" style="color:#0E8A7A">consultdrfat.vercel.app/book</a>.
+        The discount is applied automatically — only you can use this code.
+      </p>
+    </div>
+    <div style="background:#F0F3F6;padding:16px 32px;text-align:center;border-top:1px solid #E0E8EF">
+      <p style="font-size:11px;color:#8FA0B0;margin:0">ConsultDrFat · 🔒 Encrypted · 🇳🇬 Nigeria</p>
+    </div>
+  </div>
+</body>
+</html>`,
+    },
+  });
+}
+
+/* ─────────────────────── Attachment Toggle ─────────────────────── */
+
+/**
+ * Toggle whether clients can attach files in the session.
+ * Stored on the session doc as `attachmentsEnabled: boolean`.
+ */
+export async function setAttachmentsEnabled(bookingId: string, enabled: boolean) {
+  await updateDoc(doc(db, "sessions", bookingId), { attachmentsEnabled: enabled });
+}

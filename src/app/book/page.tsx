@@ -8,6 +8,7 @@ import {
 } from "@/lib/db";
 import { generateSlots, groupByDay, Slot } from "@/lib/slots";
 import { payNGN } from "@/lib/paystack";
+import { validateDiscountCode, redeemDiscountCode } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import SignInForm from "@/components/SignInForm";
 import { PracticeSettings, DEFAULT_SETTINGS } from "@/lib/types";
@@ -30,6 +31,10 @@ export default function BookPage() {
   const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState<"idle" | "paying" | "booked">("idle");
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [discountCodeInput, setDiscountCodeInput] = useState("");
+  const [discountValidating, setDiscountValidating] = useState(false);
+  const [discountApplied, setDiscountApplied] = useState<{ id: string; code: string; percent: number } | null>(null);
+  const [discountError, setDiscountError] = useState("");
 
   useEffect(() => {
     // Wait for auth to resolve before loading slots
@@ -74,6 +79,26 @@ export default function BookPage() {
 
   const daySlots = selDay ? byDay.get(selDay) ?? [] : [];
 
+  const validateDiscount = async () => {
+    const raw = discountCodeInput.trim().toUpperCase();
+    if (!raw) return;
+    setDiscountValidating(true);
+    setDiscountError("");
+    setDiscountApplied(null);
+    try {
+      const dc = await validateDiscountCode(raw, user?.email ?? "");
+      if (!dc) {
+        setDiscountError("Invalid, expired, or not applicable to your account.");
+      } else {
+        setDiscountApplied({ id: dc.id, code: dc.code, percent: dc.percent });
+      }
+    } catch {
+      setDiscountError("Could not validate code. Please try again.");
+    } finally {
+      setDiscountValidating(false);
+    }
+  };
+
   const pay = () => {
     if (!selSlot || !user || !consent) return;
 
@@ -87,6 +112,9 @@ export default function BookPage() {
     setStatus("paying");
 
     let createdId: string | null = null;
+    const discountedPrice = discountApplied
+      ? Math.round(settings.priceNGN * (1 - discountApplied.percent / 100))
+      : settings.priceNGN;
 
     createBooking({
       clientId: user.uid,
@@ -96,17 +124,26 @@ export default function BookPage() {
       slotEnd: Timestamp.fromDate(selSlot.end),
       status: "held",
       topic,
-      amountNGN: settings.priceNGN,
+      amountNGN: discountedPrice,
+      ...(discountApplied && {
+        discountCode: discountApplied.code,
+        discountCodeId: discountApplied.id,
+        discountPercent: discountApplied.percent,
+      }),
     }).then((id) => {
       createdId = id;
       setBookingId(id);
       payNGN({
         email,
-        amountNGN: settings.priceNGN,
+        amountNGN: discountedPrice,
         metadata: { bookingId: id, kind: "session" },
         onSuccess: async (ref) => {
           try { if (API_BASE) await fetch(`${API_BASE}/verify?reference=${ref}`); } catch {}
           await markBookingPaid(id, ref);
+          // Mark discount code as used so it can't be reused
+          if (discountApplied) {
+            try { await redeemDiscountCode(discountApplied.id, id); } catch { /* non-fatal */ }
+          }
           setStatus("booked");
         },
         onCancel: () => {
@@ -264,6 +301,51 @@ export default function BookPage() {
             </div>
 
             <div style={{ marginTop: 12 }}>
+              {/* Discount code field */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: "var(--navy)", display: "block", marginBottom: 6 }}>
+                  Discount code <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: 12 }}>(optional)</span>
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={discountCodeInput}
+                    onChange={e => {
+                      setDiscountCodeInput(e.target.value.toUpperCase());
+                      setDiscountApplied(null);
+                      setDiscountError("");
+                    }}
+                    placeholder="DRFAT-XXXX"
+                    style={{ flex: 1, fontFamily: "monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}
+                    disabled={!!discountApplied}
+                  />
+                  {!discountApplied ? (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={validateDiscount}
+                      disabled={!discountCodeInput.trim() || discountValidating}
+                      style={{ whiteSpace: "nowrap", padding: "0 14px" }}
+                    >
+                      {discountValidating ? "…" : "Apply"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={() => { setDiscountApplied(null); setDiscountCodeInput(""); }}
+                      style={{ whiteSpace: "nowrap", padding: "0 14px", color: "var(--muted)" }}
+                    >Remove</button>
+                  )}
+                </div>
+                {discountError && <p style={{ fontSize: 12, color: "#e05", margin: "6px 0 0" }}>{discountError}</p>}
+                {discountApplied && (
+                  <div style={{ fontSize: 13, color: "var(--teal)", fontWeight: 600, margin: "6px 0 0" }}>
+                    ✓ {discountApplied.percent}% discount applied — you pay {new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(Math.round(settings.priceNGN*(1-discountApplied.percent/100)))} instead of {new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(settings.priceNGN)}
+                  </div>
+                )}
+              </div>
+
               <label htmlFor="topic">
                 What is your main concern? <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional)</span>
               </label>
