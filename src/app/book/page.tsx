@@ -20,7 +20,7 @@ const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2
 
 
 export default function BookPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const [settings, setSettings] = useState<PracticeSettings>(DEFAULT_SETTINGS);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [ready, setReady] = useState(false);
@@ -129,7 +129,10 @@ export default function BookPage() {
               <small>Medical Consultations</small>
             </div>
           </div>
-          <Link href="/" className="btn btn-ghost btn-sm">← Home</Link>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Link href="/" className="btn btn-ghost btn-sm">← Home</Link>
+            <button className="btn btn-ghost btn-sm" onClick={() => signOut()} title="Sign out">Sign Out</button>
+          </div>
         </nav>
 
         <div className="page-head">

@@ -1237,3 +1237,251 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   margin-bottom: 4px;
 }
 
+
+/* ═══════════════════════════════════════════════════════
+   ADMIN — AVAILABILITY WEEK GRID
+═══════════════════════════════════════════════════════ */
+.avail-layout { display: flex; flex-direction: column; gap: 20px; }
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 16px;
+}
+.card-header h3 { font-size: 16px; margin-bottom: 4px; font-family: var(--font-pjs), sans-serif; font-weight: 700; color: var(--navy); }
+.card-sub { font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 600px; margin: 0; }
+
+/* Week grid — 7 day cards */
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+}
+.week-day-card {
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 10px;
+  background: var(--paper);
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.week-day-card.active {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+  box-shadow: 0 2px 10px rgba(14,138,122,.1);
+}
+.week-day-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.week-day-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy);
+  font-family: var(--font-pjs), sans-serif;
+}
+.week-day-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--teal);
+  background: rgba(14,138,122,.12);
+  border-radius: 999px;
+  padding: 2px 7px;
+  width: fit-content;
+}
+.week-day-off {
+  font-size: 10px;
+  color: var(--muted-2);
+  font-weight: 500;
+}
+.week-windows { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.week-window {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(14,138,122,.08);
+  border: 1px solid rgba(14,138,122,.2);
+  border-radius: 7px;
+  padding: 4px 7px;
+  gap: 4px;
+}
+.week-window-time { font-size: 10.5px; font-weight: 600; color: var(--teal); flex: 1; }
+.week-window-del {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted-2); font-size: 11px; padding: 0 2px;
+  line-height: 1; transition: color 0.15s; flex-shrink: 0;
+}
+.week-window-del:hover { color: var(--red); }
+.week-add-btn {
+  margin-top: auto;
+  background: none;
+  border: 1.5px dashed var(--line);
+  border-radius: 8px;
+  padding: 5px;
+  width: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-2);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, color 0.15s;
+}
+.week-add-btn:hover { border-color: var(--teal); color: var(--teal); }
+.week-add-form {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.week-time-row {
+  display: flex;
+  gap: 6px;
+}
+.week-time-row > div { flex: 1; }
+.week-time-row input { font-size: 11px; padding: 6px 7px; }
+.week-add-actions {
+  display: flex;
+  gap: 5px;
+}
+.week-add-actions .btn { flex: 1; justify-content: center; font-size: 11px; padding: 5px 4px; }
+
+/* ── Exceptions list ── */
+.exc-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.exc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--white);
+}
+.exc-row.block { background: rgba(192,57,43,.04); border-color: rgba(192,57,43,.2); }
+.exc-row.extra { background: rgba(14,138,122,.04); border-color: rgba(14,138,122,.2); }
+.exc-badge {
+  font-size: 11px; font-weight: 700; border-radius: 999px;
+  padding: 3px 10px; flex-shrink: 0;
+}
+.exc-badge.block { background: rgba(192,57,43,.1); color: var(--red); }
+.exc-badge.extra { background: rgba(14,138,122,.12); color: var(--teal); }
+.exc-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.exc-date { font-size: 13.5px; font-weight: 600; color: var(--navy); }
+.exc-time { font-size: 12px; color: var(--muted); }
+.exc-add { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 4px; }
+.exc-add-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+
+/* ── Booking list ── */
+.booking-list { display: flex; flex-direction: column; gap: 12px; }
+.booking-card {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--white);
+  transition: box-shadow 0.15s;
+}
+.booking-card:hover { box-shadow: var(--shadow-md); }
+.booking-card.past { opacity: 0.65; }
+.booking-date-col {
+  background: var(--navy);
+  color: #fff;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  flex-shrink: 0;
+  text-align: center;
+}
+.booking-month { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.6); }
+.booking-day { font-size: 28px; font-weight: 700; line-height: 1; font-family: var(--font-pjs), sans-serif; }
+.booking-dow { font-size: 10px; color: rgba(255,255,255,.6); margin-top: 2px; }
+.booking-info {
+  flex: 1;
+  padding: 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.booking-time { font-size: 13px; font-weight: 700; color: var(--navy); }
+.booking-client { font-size: 13.5px; color: var(--ink); font-weight: 600; }
+.booking-email { font-size: 12px; color: var(--muted); }
+.booking-topic { font-size: 12px; color: var(--muted); font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.booking-right {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.booking-amount { font-size: 15px; font-weight: 700; color: var(--navy); font-family: var(--font-pjs), sans-serif; }
+.status-pill {
+  display: inline-block;
+  font-size: 11.5px; font-weight: 700;
+  padding: 4px 10px; border-radius: 999px;
+}
+.status-pill.paid { background: rgba(14,138,122,.12); color: var(--teal); }
+.status-pill.held { background: rgba(200,150,58,.12); color: var(--gold); }
+.status-pill.cancelled { background: rgba(192,57,43,.1); color: var(--red); }
+
+/* Filter pills */
+.filter-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-pill {
+  font-size: 12px; font-weight: 600; padding: 5px 13px;
+  border-radius: 999px; border: 1.5px solid var(--line);
+  background: var(--white); color: var(--ink-2);
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.filter-pill:hover { border-color: var(--teal); color: var(--teal); }
+.filter-pill.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 40px 20px; }
+
+/* Settings grid */
+.settings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+.settings-field { display: flex; flex-direction: column; gap: 4px; }
+.settings-field label { font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+.field-hint { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
+/* Stat cards */
+.stat-card {
+  background: var(--white); border: 1px solid var(--line);
+  border-radius: 16px; padding: 18px; box-shadow: var(--shadow-sm);
+}
+.stat-icon { font-size: 24px; margin-bottom: 8px; }
+.stat-val { font-size: 22px; font-weight: 700; line-height: 1.1; font-family: var(--font-pjs), sans-serif; }
+.stat-lbl { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+/* ─── Mobile overrides ─── */
+@media (max-width: 768px) {
+  .week-grid { grid-template-columns: repeat(2, 1fr); }
+  .week-day-card { min-height: auto; }
+  .week-day-name { font-size: 13px; }
+  .booking-card { flex-direction: column; }
+  .booking-date-col { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 10px 14px; }
+  .booking-day { font-size: 20px; }
+  .booking-right { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .booking-amount { font-size: 14px; }
+  .card-header { flex-direction: column; gap: 10px; }
+  .filter-pills { margin-top: 8px; }
+  .settings-grid { grid-template-columns: 1fr; }
+  .exc-add-row { flex-direction: column; }
+  .exc-add-row > div { width: 100%; }
+}
+@media (max-width: 480px) {
+  .week-grid { grid-template-columns: 1fr 1fr; }
+}

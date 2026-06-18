@@ -186,7 +186,7 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
               )}
             </button>
 
-            <div className="divider-or">or {mode === "register" ? "register" : "sign in"} with email</div>
+            <div className="divider-or" style={{ margin: "0 0 14px" }}>or {mode === "register" ? "register" : "sign in"} with email</div>
 
             <form onSubmit={handleEmail}>
               {mode === "register" && (
@@ -247,9 +247,19 @@ export default function SignInForm({ title = "Sign In", subtitle = "Enter your c
                     <button type="button" onClick={() => go("reset")}>Forgot password?</button>
                     <span style={{ margin: "0 8px", color: "var(--line)" }}>|</span>
                     <button type="button" onClick={() => go("register")}>Create account</button>
+                    <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
+                      By signing in you agree to our{" "}
+                      <a href="/privacy" target="_blank" rel="noopener" style={{ color: "var(--teal)", textDecoration: "underline", fontWeight: 600 }}>Privacy Policy</a>
+                    </div>
                   </>
                 ) : (
-                  <button type="button" onClick={() => go("signin")}>Already have an account? Sign in</button>
+                  <>
+                    <button type="button" onClick={() => go("signin")}>Already have an account? Sign in</button>
+                    <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)", textAlign: "center" }}>
+                      By registering you agree to our{" "}
+                      <a href="/privacy" target="_blank" rel="noopener" style={{ color: "var(--teal)", textDecoration: "underline", fontWeight: 600 }}>Privacy Policy</a>
+                    </div>
+                  </>
                 )}
               </div>
             </form>
