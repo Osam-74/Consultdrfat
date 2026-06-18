@@ -68,16 +68,26 @@ export async function deleteException(id: string) {
 }
 
 /* ───────────────────────── Bookings ────────────────────────── */
-export async function getActiveBookings(): Promise<Booking[]> {
-  const q = query(
-    collection(db, "bookings"),
-    where("slotStart", ">", Timestamp.now()),
-    orderBy("slotStart", "asc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
-    .filter((b) => b.status !== "cancelled");
+export async function getActiveBookings(clientUid?: string): Promise<Booking[]> {
+  // Firestore rules only allow clients to read their own bookings.
+  // A query without a clientId filter gets PERMISSION_DENIED and kills Promise.all.
+  // If no uid is provided (not yet authenticated) return empty — no taken slots.
+  if (!clientUid) return [];
+  try {
+    const q = query(
+      collection(db, "bookings"),
+      where("clientId", "==", clientUid),
+      where("slotStart", ">", Timestamp.now()),
+      orderBy("slotStart", "asc")
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => b.status !== "cancelled");
+  } catch {
+    // Non-fatal — if this fails, just show all slots as available
+    return [];
+  }
 }
 
 export async function createBooking(b: Omit<Booking, "id" | "createdAt">): Promise<string> {

@@ -32,14 +32,22 @@ export default function BookPage() {
   const [bookingId, setBookingId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for auth to resolve before loading slots
+    if (loading) return;
     (async () => {
-      const [s, t, e, b] = await Promise.all([getSettings(), getTemplates(), getExceptions(), getActiveBookings()]);
+      // Load each source independently so one failure doesn't kill the rest
+      const [s, t, e, b] = await Promise.all([
+        getSettings().catch(() => DEFAULT_SETTINGS),
+        getTemplates().catch(() => []),
+        getExceptions().catch(() => []),
+        getActiveBookings(user?.uid ?? undefined).catch(() => []),
+      ]);
       setSettings(s);
-      const taken = new Set(b.map((x) => x.slotStart.toMillis()));
+      const taken = new Set(b.map((x: { slotStart: { toMillis: () => number } }) => x.slotStart.toMillis()));
       setSlots(generateSlots(s, t, e, taken));
       setReady(true);
-    })().catch(() => setReady(true));
-  }, []);
+    })();
+  }, [user, loading]);
 
   const byDay = useMemo(() => groupByDay(slots), [slots]);
 
