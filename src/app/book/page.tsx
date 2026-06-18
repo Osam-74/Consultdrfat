@@ -195,7 +195,7 @@ export default function BookPage() {
           </div>
 
           {/* Summary */}
-          <div className="panel">
+          <div className="panel" style={{ minWidth: 0, overflow: "hidden" }}>
             <div className="panel-head">
               <h3>🩺 Your Consultation</h3>
             </div>

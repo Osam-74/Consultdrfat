@@ -281,6 +281,7 @@ img { max-width: 100%; height: auto; display: block; }
   background: var(--white); border: 1px solid var(--line);
   border-radius: 18px; padding: 22px;
   box-shadow: var(--shadow-sm);
+  min-width: 0; overflow: hidden; box-sizing: border-box;
 }
 
 /* ── How It Works ── */
@@ -344,11 +345,11 @@ img { max-width: 100%; height: auto; display: block; }
 .page-head .lbl { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--teal); margin-bottom: 5px; }
 .page-head h2 { font-size: clamp(20px, 3vw, 26px); margin-bottom: 5px; }
 .page-head p { color: var(--muted); font-size: 14px; }
-.book-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; align-items: start; margin: 18px 0 48px; }
+.book-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; align-items: start; margin: 18px 0 48px; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
 .panel-head h3 { font-size: 15px; color: var(--navy); font-family: var(--font-pjs), sans-serif; font-weight: 700; }
 .windownote { font-size: 11px; color: var(--muted); background: var(--sky-soft); border: 1px solid #C8DFF0; padding: 3px 10px; border-radius: 999px; font-weight: 500; }
-.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; overflow: hidden; min-width: 0; }
 .cal .dow { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-2); text-align: center; padding-bottom: 5px; font-weight: 600; }
 .day {
   aspect-ratio: 1; border: 1.5px solid var(--line); border-radius: 10px;
@@ -376,7 +377,7 @@ img { max-width: 100%; height: auto; display: block; }
 .slot:hover { border-color: var(--teal); color: var(--teal); background: var(--teal-pale); }
 .slot.sel { background: var(--teal); border-color: var(--teal); color: #fff; box-shadow: 0 2px 10px rgba(14,138,122,.30); }
 .muted-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 14px; margin-bottom: 7px; font-weight: 600; }
-.sumline { display: flex; gap: 10px; font-size: 14px; margin-bottom: 9px; align-items: flex-start; }
+.sumline { display: flex; gap: 10px; font-size: 14px; margin-bottom: 9px; align-items: flex-start; min-width: 0; overflow: hidden; }
 .sumline .ic { color: var(--teal); font-size: 15px; margin-top: 2px; }
 .price-row { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px dashed var(--line); margin-top: 14px; padding-top: 12px; }
 .price { font-family: var(--font-lora), serif; font-size: 26px; color: var(--navy); font-weight: 600; }
@@ -898,7 +899,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .features-grid { grid-template-columns: 1fr; gap: 12px; }
   .conditions-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .footer-inner { grid-template-columns: 1fr; gap: 24px; }
-  .book-grid { grid-template-columns: 1fr; gap: 14px; }
+  .book-grid { grid-template-columns: 1fr; gap: 14px; width: 100%; }
   .slots { grid-template-columns: repeat(3, 1fr); gap: 6px; }
 
   /* Meet teaser */
@@ -942,7 +943,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .signin-page { padding: 16px 12px; }
 
   /* Booking page */
-  .panel { padding: 16px; }
+  .panel { padding: 14px 14px; max-width: 100%; box-sizing: border-box; }
   .book-grid { margin: 12px 0 36px; }
   .page-head { padding: 20px 0 10px; }
   .cal { gap: 3px; }

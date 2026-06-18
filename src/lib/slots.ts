@@ -47,7 +47,7 @@ export function generateSlots(
     const dateStr = ymd(day);
 
     const dayExceptions = exceptions.filter((e) => e.date === dateStr);
-    const fullDayBlock = dayExceptions.some((e) => e.type === "block" && !e.start);
+    const fullDayBlock = dayExceptions.some((e) => e.type === "block" && (!e.start || e.start === ""));
     if (fullDayBlock) continue;
 
     // Build the day's open windows: matching active templates + "extra" exceptions.
@@ -60,7 +60,7 @@ export function generateSlots(
       .forEach((e) => windows.push({ start: toMin(e.start!), end: toMin(e.end!) }));
 
     const partialBlocks = dayExceptions
-      .filter((e) => e.type === "block" && e.start && e.end)
+      .filter((e) => e.type === "block" && e.start && e.start !== "" && e.end && e.end !== "")
       .map((e) => ({ start: toMin(e.start!), end: toMin(e.end!) }));
 
     for (const w of windows) {

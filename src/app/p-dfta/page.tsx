@@ -163,13 +163,12 @@ export default function AdminPage() {
         {/* Stats */}
         <div className="admin-summary-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,margin:"20px 0"}}>
           {[
-            {icon:"✅",val:stats.confirmed,        label:"Confirmed",        color:"var(--teal)"},
-            {icon:"⏳",val:stats.pending,          label:"Pending Payment",  color:"var(--gold)"},
-            {icon:"💰",val:ngn(stats.earnings),    label:"Total Earnings",   color:"var(--navy)"},
-            {icon:"📆",val:templates.length+" base windows",label:"Recurring Weekly",color:"var(--sky)"},
+            {val:stats.confirmed,        label:"Confirmed",       color:"var(--teal)"},
+            {val:stats.pending,          label:"Pending",         color:"var(--gold)"},
+            {val:ngn(stats.earnings),    label:"Earnings",        color:"var(--navy)"},
+            {val:templates.length,       label:"Weekly Slots",    color:"var(--sky)"},
           ].map(s=>(
             <div key={s.label} className="stat-card">
-              <div className="stat-icon">{s.icon}</div>
               <div className="stat-val" style={{color:s.color}}>{s.val}</div>
               <div className="stat-lbl">{s.label}</div>
             </div>
