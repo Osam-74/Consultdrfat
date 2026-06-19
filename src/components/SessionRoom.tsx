@@ -6,7 +6,7 @@ import {
   watchSession, watchMessages, ensureSession, startSession, completeSession, clearInSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
-  getBookingById, pingPresence, watchBookings,
+  getBookingById, pingPresence,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, VoiceHandle } from "@/lib/webrtc";
@@ -79,17 +79,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t); }, []);
 
   // ── Presence heartbeat — ping every 10s regardless of session state ──
-  // Don't gate on `session` existing — we want to ping as soon as the user arrives
-  // so the other side can see them immediately.
+  // Presence heartbeat — stop pinging when session is complete (saves quota).
+  // 60s interval = 1 write/min per user instead of 2/min. Threshold is 120s.
   useEffect(() => {
     if (!user) return;
+    if (session?.status === "complete") return; // stop pinging after session ends
     const uid = user.uid;
     pingPresence(bookingId, uid);
-    // 30s interval — enough to detect online/offline (threshold 60s).
-    // Slower = fewer Firestore writes = stays within free quota.
-    const interval = setInterval(() => pingPresence(bookingId, uid), 30_000);
+    const interval = setInterval(() => pingPresence(bookingId, uid), 60_000);
     return () => clearInterval(interval);
-  }, [bookingId, user]);
+  }, [bookingId, user, session?.status]);
 
   // Watch presence — re-check every 15s AND whenever session doc changes
   useEffect(() => {
@@ -121,23 +120,28 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       setClientUid(b.clientId ?? "");
     }).catch(() => {});
 
-    // Find the next upcoming paid booking after this one (live subscription)
-    const unsubNext = watchBookings((allBookings) => {
-      const nowMs = Date.now();
-      const currentSlotMs = allBookings.find(b => b.id === bookingId)?.slotStart.toMillis() ?? nowMs;
-      const next = allBookings
-        .filter(b => b.status === "paid" && !b.archived && b.id !== bookingId && b.slotStart.toMillis() > currentSlotMs)
-        .sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis())[0];
-      if (next) {
-        const d = next.slotStart.toDate();
-        const label = d.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
-        setNextClientLabel(label);
-        setNextClient(bookingId, label);
-      } else {
-        setNextClientLabel(null);
-      }
-    });
-    return unsubNext;
+    // One-time fetch — avoids watchBookings() subscribing to ALL bookings.
+    // Next-client label doesn't change mid-session so a single read is fine.
+    const bkPromise = getBookingById(bookingId);
+    bkPromise.then(async (bk) => {
+      if (!bk) return;
+      try {
+        const { getDocs, query, collection, where, orderBy } = await import("firebase/firestore");
+        const { db: fdb } = await import("@/lib/firebase");
+        const q = query(collection(fdb, "bookings"), where("status", "==", "paid"), orderBy("slotStart", "asc"));
+        const snap = await getDocs(q);
+        const currentMs = bk.slotStart.toMillis();
+        const nextDoc = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as { id: string; slotStart: { toMillis: () => number }; archived?: boolean }))
+          .find(b => !b.archived && b.id !== bookingId && b.slotStart.toMillis() > currentMs);
+        if (nextDoc) {
+          const label = new Date(nextDoc.slotStart.toMillis()).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+          setNextClientLabel(label);
+          setNextClient(bookingId, label);
+        }
+      } catch { /* non-fatal */ }
+    }).catch(() => {});
+    return () => {};
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, isPract]);
 

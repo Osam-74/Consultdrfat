@@ -590,6 +590,20 @@ export async function getLiveSession(bookingId: string): Promise<SessionDoc | nu
   return s.status === "live" ? s : null;
 }
 
+/** Real-time session watcher for the client booking page.
+ *  Calls cb whenever the session doc changes (status, endAt, etc.)
+ *  Returns unsubscribe function.
+ */
+export function watchSessionStatus(
+  bookingId: string,
+  cb: (status: "idle" | "live" | "complete" | null) => void
+): () => void {
+  return onSnapshot(doc(db, "sessions", bookingId), (snap) => {
+    if (!snap.exists()) { cb(null); return; }
+    cb((snap.data() as SessionDoc).status ?? null);
+  });
+}
+
 /* ─────────────────────── Waiting Room / Archive ──────────────────────────
    Practitioner can see who is "in the waiting room" = has a paid booking
    whose slot is within the next 90 minutes and whose session is idle/not started.
@@ -652,8 +666,9 @@ export async function rescheduleBooking(
  */
 export async function pingPresence(bookingId: string, uid: string): Promise<void> {
   try {
-    // Only write the presence timestamp — NOT updatedAt — to avoid triggering
-    // downstream listeners and burning Firestore write quota.
+    // Presence heartbeat — only write the timestamp field (not updatedAt) to
+    // avoid triggering downstream watchSession listeners unnecessarily.
+    // Rate is intentionally low (60s interval) to conserve Firestore write quota.
     await updateDoc(sessionRef(bookingId), {
       [`presence.${uid}`]: Date.now(),
     });
