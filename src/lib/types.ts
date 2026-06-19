@@ -60,6 +60,7 @@ export interface Booking {
   paystackRef?: string;
   createdAt: Timestamp;
   archived?: boolean;
+  inSession?: boolean;         // true while session is live (cleared on complete/exit)
   rescheduledOnce?: boolean;   // true if client has already rescheduled once
   completedAt?: Timestamp;     // set when session completes
 }

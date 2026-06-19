@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  watchSession, watchMessages, ensureSession, startSession, completeSession,
+  watchSession, watchMessages, ensureSession, startSession, completeSession, clearInSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
   getBookingById, pingPresence, watchBookings,
@@ -85,7 +85,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     if (!user) return;
     const uid = user.uid;
     pingPresence(bookingId, uid);
-    const interval = setInterval(() => pingPresence(bookingId, uid), 10_000);
+    // 30s interval — enough to detect online/offline (threshold 60s).
+    // Slower = fewer Firestore writes = stays within free quota.
+    const interval = setInterval(() => pingPresence(bookingId, uid), 30_000);
     return () => clearInterval(interval);
   }, [bookingId, user]);
 
@@ -95,7 +97,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     const presence = (session as unknown as Record<string, unknown>).presence as Record<string, number> | undefined;
     if (!presence) return;
     const now = Date.now();
-    const THRESHOLD = 25_000; // 25s — slightly tighter than ping interval (10s)
+    const THRESHOLD = 75_000; // 75s — generous buffer for 30s ping interval
     const otherSeen = Object.entries(presence)
       .filter(([uid]) => uid !== user.uid)
       .some(([, lastSeen]) => now - lastSeen < THRESHOLD);
@@ -268,6 +270,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     // 5. Update UI state
     setVoiceLive(false);
     setMicOn(false);
+
+    // Clear inSession flag so waiting room removes this client immediately
+    if (!isPract) {
+      clearInSession(bookingId).catch(() => {});
+    }
 
     // Redirect after a brief "session complete" screen
     const timer = setTimeout(() => {
@@ -470,7 +477,19 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute}>
                     <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
                   </button>}
-              <button className="ctl danger" onClick={() => completeSession(bookingId)} disabled={!sessionLive && !isPract}>
+              <button className="ctl danger"
+                onClick={async () => {
+                  if (isPract) {
+                    await completeSession(bookingId);
+                  } else {
+                    // Client leaving: just clear inSession and go home.
+                    // Don't end the session for the practitioner.
+                    await clearInSession(bookingId).catch(() => {});
+                    window.location.href = "/";
+                  }
+                }}
+                disabled={!sessionLive && !isPract}
+              >
                 <span className="knob">✕</span>{isPract ? "End" : "Leave"}
               </button>
             </div>

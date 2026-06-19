@@ -1,44 +1,73 @@
 "use client";
 /**
  * GlobalShell — rendered in layout.tsx wrapping all pages.
- * Provides:
- *   - Floating "Return to session" bubble (follows user across all pages)
+ * - Floating "Return to session" bubble (hidden on /session page and when session complete)
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getClientBookings, getLiveSession } from "@/lib/db";
+import { getClientBookings, watchSession } from "@/lib/db";
 
 export default function GlobalShell({ children }: { children: React.ReactNode }) {
   const { user, role } = useAuth();
+  const pathname = usePathname();
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [bubbleExpanded, setBubbleExpanded] = useState(true);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionUnsubRef = useRef<(() => void) | null>(null);
 
-  // Check for active live session every 30s
+  // Hide bubble on session page — user is already there
+  const onSessionPage = pathname?.startsWith("/session");
+
+  // Find the client's active booking, then watch the session doc in real-time
   useEffect(() => {
-    if (!user || role !== "client") { setActiveSessionId(null); return; }
+    if (!user || role !== "client") {
+      setActiveSessionId(null);
+      if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
+      return;
+    }
 
-    const check = async () => {
+    let cancelled = false;
+
+    const setup = async () => {
       try {
         const bookings = await getClientBookings(user.uid);
-        for (const b of bookings) {
-          const sess = await getLiveSession(b.id).catch(() => null);
-          if (sess?.status === "live") {
-            setActiveSessionId(b.id);
-            return;
+        if (cancelled) return;
+
+        // Unsubscribe any previous session watcher
+        if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
+
+        // Find the most recent non-archived booking
+        const active = bookings.find((b) => !b.archived);
+        if (!active) { setActiveSessionId(null); return; }
+
+        // Watch session doc in real-time — react instantly when status → live or complete
+        const unsub = watchSession(active.id, (sess) => {
+          if (!sess || (sess.status as string) === "complete" || (sess.status as string) === "idle") {
+            setActiveSessionId(null);
+          } else if (sess.status === "live") {
+            setActiveSessionId(active.id);
           }
-        }
+        });
+        sessionUnsubRef.current = unsub;
+      } catch {
         setActiveSessionId(null);
-      } catch { setActiveSessionId(null); }
+      }
     };
 
-    check();
-    const iv = setInterval(check, 30_000);
-    return () => clearInterval(iv);
+    setup();
+    // Re-check bookings every 60s in case a new booking appears
+    const iv = setInterval(setup, 60_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+      if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
+    };
   }, [user, role]);
 
-  // Auto-collapse label after 4s
+  // Auto-collapse label after 4s when bubble appears
   useEffect(() => {
     if (!activeSessionId) return;
     setBubbleExpanded(true);
@@ -47,15 +76,16 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
     return () => { if (collapseTimer.current) clearTimeout(collapseTimer.current); };
   }, [activeSessionId]);
 
+  const showBubble = activeSessionId && !onSessionPage;
+
   return (
     <>
       {children}
 
-      {/* ── Floating "Return to session" bubble ── */}
-      {activeSessionId && (
+      {showBubble && (
         <Link
           href={`/session/?id=${activeSessionId}&role=client`}
-          onClick={() => { setBubbleExpanded(true); }}
+          onClick={() => setBubbleExpanded(true)}
           style={{
             position: "fixed",
             bottom: 24,
@@ -73,7 +103,6 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
             cursor: "pointer",
           }}
         >
-          {/* White headphone icon with pulse ring */}
           <span style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, flexShrink: 0 }}>
             <span style={{
               position: "absolute", width: 28, height: 28, borderRadius: "50%",
@@ -82,7 +111,6 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
             }} />
             <span style={{ fontSize: 20, filter: "brightness(0) invert(1)" }}>🎧</span>
           </span>
-          {/* Animated label */}
           <span style={{
             color: "#fff",
             fontWeight: 700,

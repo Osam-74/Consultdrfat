@@ -146,17 +146,25 @@ export async function startSession(bookingId: string, durationMin: number) {
     offer: null,
     updatedAt: serverTimestamp(),
   });
+  // Mark booking as inSession so waiting room removes the client immediately.
+  await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
 }
 export async function completeSession(bookingId: string) {
   await updateDoc(sessionRef(bookingId), { status: "complete", updatedAt: serverTimestamp() });
-  // Auto-archive the booking when session completes.
-  // PRODUCTION NOTE: In production, clients should not be able to join the waiting room
-  // until 15 min before their slot. For now (testing), early joins are allowed.
+  // Archive booking + clear inSession flag so waiting room empties immediately.
   await updateDoc(doc(db, "bookings", bookingId), {
     archived: true,
+    inSession: false,
     completedAt: serverTimestamp(),
   });
 }
+/** Called when client manually exits — removes them from the waiting room view. */
+export async function clearInSession(bookingId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, "bookings", bookingId), { inSession: false });
+  } catch { /* non-fatal */ }
+}
+
 export async function setNextClient(bookingId: string, label: string | null) {
   await updateDoc(sessionRef(bookingId), { nextClientAt: label, updatedAt: serverTimestamp() });
 }
@@ -598,7 +606,8 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
       .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
       .filter((b) => {
         const ms = b.slotStart.toMillis();
-        return b.status === "paid" && !b.archived && ms >= windowStart && ms <= windowEnd;
+        // Show only: paid, not archived, not currently in a live session, within window
+        return b.status === "paid" && !b.archived && !b.inSession && ms >= windowStart && ms <= windowEnd;
       });
     cb(rows);
   });
@@ -632,9 +641,10 @@ export async function rescheduleBooking(
  */
 export async function pingPresence(bookingId: string, uid: string): Promise<void> {
   try {
+    // Only write the presence timestamp — NOT updatedAt — to avoid triggering
+    // downstream listeners and burning Firestore write quota.
     await updateDoc(sessionRef(bookingId), {
       [`presence.${uid}`]: Date.now(),
-      updatedAt: serverTimestamp(),
     });
   } catch { /* non-fatal */ }
 }
