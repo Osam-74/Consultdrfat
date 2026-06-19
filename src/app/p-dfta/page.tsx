@@ -33,12 +33,12 @@ function calCells(base: Date): Date[] {
 
 const BrandNav = ({ onSignOut }: { onSignOut: () => void }) => (
   <nav className="nav" style={{borderBottom:"1px solid var(--line)",marginBottom:4}}>
-    <div className="brand">
+    <Link href="/" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:10}} className="brand">
       <div className="brand-icon">🩺</div>
       <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
-    </div>
+    </Link>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      
+      <Link href="/waiting-room" className="btn btn-ghost btn-sm">Waiting Room</Link>
       <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
     </div>
   </nav>

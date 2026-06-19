@@ -9,7 +9,7 @@ import {
   getBookingById, pingPresence, watchBookings,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
-import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
+import { startVoice, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
 import { SessionDoc, Message, Role, EXTENSION_MINUTES, DEFAULT_SETTINGS } from "@/lib/types";
@@ -78,27 +78,29 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t); }, []);
 
-  // ── Presence heartbeat — ping every 15s, detect other user online (< 30s ago) ──
+  // ── Presence heartbeat — ping every 10s regardless of session state ──
+  // Don't gate on `session` existing — we want to ping as soon as the user arrives
+  // so the other side can see them immediately.
   useEffect(() => {
-    if (!user || !session) return;
+    if (!user) return;
     const uid = user.uid;
-    // Ping immediately
     pingPresence(bookingId, uid);
-    const interval = setInterval(() => pingPresence(bookingId, uid), 15_000);
+    const interval = setInterval(() => pingPresence(bookingId, uid), 10_000);
     return () => clearInterval(interval);
-  }, [bookingId, user, session]);
+  }, [bookingId, user]);
 
-  // Watch for other user's presence in session doc
+  // Watch for other user's presence in session doc (refresh every tick)
   useEffect(() => {
-    if (!session?.presence || !user) return;
+    if (!session || !user) return;
+    const presence = (session as unknown as Record<string, unknown>).presence as Record<string, number> | undefined;
+    if (!presence) return;
     const now = Date.now();
-    const THRESHOLD = 30_000; // 30s
-    const presenceMap = session.presence as Record<string, number>;
-    const otherSeen = Object.entries(presenceMap)
+    const THRESHOLD = 25_000; // 25s — slightly tighter than ping interval (10s)
+    const otherSeen = Object.entries(presence)
       .filter(([uid]) => uid !== user.uid)
       .some(([, lastSeen]) => now - lastSeen < THRESHOLD);
     setOtherOnline(otherSeen);
-  }, [session?.presence, user]);
+  }, [session, user]);
   useEffect(() => { msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight }); }, [messages.length]);
 
   // Load client info directly from the booking document (already stored at payment time)
@@ -157,33 +159,33 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // ── Voice ──
   const joinVoice = async () => {
     try {
-      const stream = await getMicStream();
+      // Request mic with echo cancellation & noise suppression
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 48000,
+        }
+      });
       localStreamRef.current = stream;
       setMicOn(true);
-
-      // Start WebRTC FIRST — before any AudioContext work.
-      // AudioContext.createMediaStreamSource() can reroute the stream on some
-      // browsers (especially mobile Safari/Chrome) and prevent WebRTC from
-      // receiving audio. We pass the original stream to startVoice, then
-      // meter a separate CLONE so WebRTC is never affected.
-      voiceRef.current = await startVoice({
-        bookingId, role, localStream: stream,
-        onRemote: (remote) => {
+      const voice = await startVoice({
+        bookingId, role,
+        localStream: stream,
+        onRemote: (remoteStream) => {
           if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remote;
+            remoteAudioRef.current.srcObject = remoteStream;
             remoteAudioRef.current.play().catch(() => {});
           }
         },
-        onState: (st) => setVoiceLive(st === "connected"),
       });
-
-      // Meter a CLONE — never the stream used by WebRTC
-      meter(stream.clone());
+      voiceRef.current = voice;
+      setVoiceLive(true);
     } catch (err) {
-      console.error("joinVoice error:", err);
-      setMicOn(true); // reflect intent even if no device
+      console.error("Mic/voice error:", err);
+      alert("Could not access microphone. Please allow mic access and try again.");
     }
-  };
+  };;
 
   const meter = (stream: MediaStream) => {
     try {
@@ -361,12 +363,14 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   const remaining = session.endAt ? session.endAt.toMillis() - now : session.durationMin * 60_000;
   const timerCls = remaining <= 60_000 ? "crit" : remaining <= 5 * 60_000 ? "warn" : "";
-  const complete = (session.status as string) === "complete" || (session.status === "live" && remaining <= 0);
+  const statusStr = session.status as string;
+  const complete = statusStr === "complete" || (session.status === "live" && remaining <= 0);
   const offer = session.offer;
   const priceFor = (min: number) => Math.round(pricePerMin * min);
   const attachmentsOn = session.attachmentsEnabled ?? false;
 
   const sessionLive = session?.status === "live";
+  const sessionComplete = (session?.status as string) === "complete";
   const send = () => {
     if (!sessionLive) return;
     const v = draft.trim(); if (!v) return; sendMessage(bookingId, role, v); setDraft("");

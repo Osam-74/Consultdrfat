@@ -3,6 +3,7 @@ import "./globals.css";
 import { plusJakartaSans, lora } from "@/lib/fonts";
 import { AuthProvider } from "@/lib/auth";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import GlobalShell from "@/components/GlobalShell";
 
 export const metadata: Metadata = {
   title: "ConsultDrFat — Expert Medical Consultations",
@@ -22,7 +23,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${plusJakartaSans.variable} ${lora.variable}`}>
       <head />
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <GlobalShell>
+            {children}
+          </GlobalShell>
+        </AuthProvider>
         <ServiceWorkerRegister />
       </body>
     </html>

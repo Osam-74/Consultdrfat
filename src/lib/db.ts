@@ -132,9 +132,15 @@ export async function ensureSession(bookingId: string, durationMin: number) {
     };
     await setDoc(ref, init);
   }
+  // If the session already exists (even if complete), leave it untouched.
+  // Completed sessions stay complete — they are not restarted.
 }
 export async function startSession(bookingId: string, durationMin: number) {
-  await updateDoc(sessionRef(bookingId), {
+  const ref = sessionRef(bookingId);
+  const snap = await getDoc(ref);
+  // Never restart a completed session
+  if (snap.exists() && (snap.data() as SessionDoc).status === "complete") return;
+  await updateDoc(ref, {
     status: "live",
     endAt: Timestamp.fromMillis(Date.now() + durationMin * 60_000),
     offer: null,
@@ -577,23 +583,22 @@ export async function getLiveSession(bookingId: string): Promise<SessionDoc | nu
  *  - Clients already in the room (slot started up to 30 min ago)
  */
 export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
-  // Rolling window: recalculate timestamps on every snapshot tick so the
-  // window doesn't go stale. We query broadly (8 h ahead) then filter in
-  // JS so we can also exclude archived bookings without a compound index.
+  // Query only by slotStart (single-field index, always exists).
+  // Filter status === "paid" and !archived in JS to avoid composite index requirement.
+  // Window: 30 min ago → 8 hours ahead, recalculated on every snapshot.
   const q = query(
     collection(db, "bookings"),
-    where("status", "==", "paid"),
     orderBy("slotStart", "asc")
   );
   return onSnapshot(q, (snap) => {
     const nowMs = Date.now();
-    const windowStart = nowMs - 30 * 60 * 1000;  // 30 min ago (grace: client arrived early)
+    const windowStart = nowMs - 30 * 60 * 1000;  // 30 min ago
     const windowEnd   = nowMs + 8 * 60 * 60 * 1000; // 8 hours ahead
     const rows = snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
       .filter((b) => {
         const ms = b.slotStart.toMillis();
-        return !b.archived && ms >= windowStart && ms <= windowEnd;
+        return b.status === "paid" && !b.archived && ms >= windowStart && ms <= windowEnd;
       });
     cb(rows);
   });

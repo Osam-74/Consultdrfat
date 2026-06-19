@@ -3,14 +3,22 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { getLiveSession, getClientBookings } from "@/lib/db";
+
+// Reusable dropdown link
+function DropdownLink({ href, onClick, children }: { href: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <a href={href} onClick={onClick}
+      style={{ display: "block", padding: "12px 18px", fontSize: 13, color: "var(--navy)", textDecoration: "none", fontWeight: 600, cursor: "pointer" }}
+      onMouseOver={e => (e.currentTarget.style.background="#f8fafc")}
+      onMouseOut={e => (e.currentTarget.style.background="transparent")}
+    >{children}</a>
+  );
+}
 
 export default function Home() {
-  const { user, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [showReturnBubble, setShowReturnBubble] = useState(false);
-  const [bubbleExpanded, setBubbleExpanded] = useState(true);
+
   const profileRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -24,27 +32,7 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Check for active live session (client only)
-  useEffect(() => {
-    if (!user) return;
-    getClientBookings(user.uid).then(async (bookings) => {
-      for (const b of bookings) {
-        const sess = await getLiveSession(b.id).catch(() => null);
-        if (sess?.status === "live") {
-          setActiveSessionId(b.id);
-          setShowReturnBubble(true);
-          break;
-        }
-      }
-    }).catch(() => {});
-  }, [user]);
 
-  // Auto-collapse "Return to session" text after 3.5s
-  useEffect(() => {
-    if (!showReturnBubble) return;
-    const t = setTimeout(() => setBubbleExpanded(false), 3500);
-    return () => clearTimeout(t);
-  }, [showReturnBubble]);
 
   return (
     <>
@@ -66,35 +54,56 @@ export default function Home() {
                     onClick={() => setProfileOpen(v => !v)}
                     style={{
                       width: 36, height: 36, borderRadius: "50%",
-                      background: "rgba(255,255,255,.15)", border: "2px solid rgba(255,255,255,.3)",
-                      color: "#fff", fontSize: 16, cursor: "pointer",
+                      background: "rgba(255,255,255,.18)", border: "2px solid rgba(255,255,255,.35)",
+                      color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer",
                       display: "flex", alignItems: "center", justifyContent: "center",
+                      letterSpacing: "-.01em",
                     }}
                     title={user.displayName ?? user.email ?? "Account"}
+                    aria-label="Account menu"
                   >
-                    {user.displayName?.[0]?.toUpperCase() ?? "👤"}
+                    {user.displayName?.[0]?.toUpperCase() ?? user.email?.[0]?.toUpperCase() ?? "A"}
                   </button>
+
                   {profileOpen && (
                     <div style={{
-                      position: "absolute", right: 0, top: "calc(100% + 8px)",
-                      background: "#fff", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,.18)",
-                      minWidth: 180, zIndex: 200, overflow: "hidden",
+                      position: "fixed",
+                      top: 64,
+                      right: 16,
+                      background: "#fff",
+                      borderRadius: 14,
+                      boxShadow: "0 12px 40px rgba(0,0,0,.22), 0 2px 8px rgba(0,0,0,.10)",
+                      minWidth: 200,
+                      zIndex: 99999,
+                      overflow: "hidden",
                     }}>
-                      <div style={{ padding: "12px 16px", borderBottom: "1px solid #f0f0f0" }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)" }}>{user.displayName ?? "Account"}</div>
-                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{user.email}</div>
+                      {/* Header */}
+                      <div style={{ padding: "14px 18px", borderBottom: "1px solid #f0f0f0", background: "#fafbfc" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {user.displayName ?? (role === "practitioner" ? "Dr. Fat" : "My Account")}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>{user.email}</div>
+                        {role === "practitioner" && (
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--teal)", marginTop: 4, textTransform: "uppercase", letterSpacing: ".04em" }}>Practitioner</div>
+                        )}
                       </div>
-                      <Link href="/book/" onClick={() => setProfileOpen(false)}
-                        style={{ display: "block", padding: "11px 16px", fontSize: 13, color: "var(--navy)", textDecoration: "none", fontWeight: 600 }}
-                        onMouseOver={e => (e.currentTarget.style.background="#f8fafc")}
-                        onMouseOut={e => (e.currentTarget.style.background="transparent")}
-                      >
-                        📅 Book a Session
-                      </Link>
+
+                      {/* Role-aware menu items */}
+                      {role === "practitioner" ? (
+                        <>
+                          <DropdownLink href="/p-dfta" onClick={() => setProfileOpen(false)}>Dashboard</DropdownLink>
+                          <DropdownLink href="/waiting-room" onClick={() => setProfileOpen(false)}>Waiting Room</DropdownLink>
+                        </>
+                      ) : (
+                        <>
+                          <DropdownLink href="/book/" onClick={() => setProfileOpen(false)}>Book a Session</DropdownLink>
+                        </>
+                      )}
+
                       <button
                         onClick={() => { setProfileOpen(false); signOut(); }}
                         style={{
-                          width: "100%", textAlign: "left", padding: "11px 16px",
+                          width: "100%", textAlign: "left", padding: "12px 18px",
                           fontSize: 13, color: "#e53e3e", fontWeight: 600,
                           background: "none", border: "none", cursor: "pointer",
                           borderTop: "1px solid #f0f0f0",
@@ -102,7 +111,7 @@ export default function Home() {
                         onMouseOver={e => (e.currentTarget.style.background="#fff5f5")}
                         onMouseOut={e => (e.currentTarget.style.background="transparent")}
                       >
-                        🚪 Logout
+                        Logout
                       </button>
                     </div>
                   )}
@@ -438,37 +447,7 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* ── Floating Return to Session bubble (client with active session) ── */}
-      {showReturnBubble && activeSessionId && (
-        <Link
-          href={`/session/?id=${activeSessionId}&role=client`}
-          onClick={() => setBubbleExpanded(true)}
-          style={{
-            position: "fixed", bottom: 24, right: 24, zIndex: 999,
-            display: "flex", alignItems: "center", gap: 8,
-            background: "linear-gradient(135deg, var(--teal), var(--sky))",
-            borderRadius: 40, boxShadow: "0 4px 20px rgba(0,180,180,.35)",
-            padding: bubbleExpanded ? "10px 18px 10px 12px" : "10px 12px",
-            textDecoration: "none", transition: "padding .3s ease, width .3s ease",
-            cursor: "pointer",
-          }}
-        >
-          {/* Pulsing live dot */}
-          <span style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20 }}>
-            <span style={{ position: "absolute", width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,.25)", animation: "pulse 1.5s infinite" }} />
-            <span style={{ fontSize: 16 }}>🎧</span>
-          </span>
-          {/* Animated text label */}
-          <span style={{
-            color: "#fff", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap",
-            maxWidth: bubbleExpanded ? 160 : 0, overflow: "hidden",
-            transition: "max-width .4s ease, opacity .3s ease",
-            opacity: bubbleExpanded ? 1 : 0,
-          }}>
-            Return to session
-          </span>
-        </Link>
-      )}
+      {/* Floating session bubble is in GlobalShell — follows user across all pages */}
     </>
   );
 }
