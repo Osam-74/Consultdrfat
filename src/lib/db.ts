@@ -616,23 +616,32 @@ export function watchSessionStatus(
  *  - Clients already in the room (slot started up to 30 min ago)
  */
 export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
-  // Query only by slotStart (single-field index, always exists).
-  // Filter status === "paid" and !archived in JS to avoid composite index requirement.
-  // Window: 30 min ago → 8 hours ahead, recalculated on every snapshot.
+  // Watch bookings in a rolling [-30min, +2h] window around now.
+  // Re-evaluated each snapshot so the window stays fresh if the page is left open.
+  // Single-field index on slotStart is sufficient for a range query — no composite needed.
+  const windowStart = Timestamp.fromMillis(Date.now() - 30 * 60 * 1000);
+  const windowEnd   = Timestamp.fromMillis(Date.now() + 2 * 60 * 60 * 1000);
   const q = query(
     collection(db, "bookings"),
+    where("slotStart", ">=", windowStart),
+    where("slotStart", "<=", windowEnd),
     orderBy("slotStart", "asc")
   );
   return onSnapshot(q, (snap) => {
-    const nowMs = Date.now();
-    const windowStart = nowMs - 30 * 60 * 1000;  // 30 min ago
-    const windowEnd   = nowMs + 8 * 60 * 60 * 1000; // 8 hours ahead
+    const freshNow = Date.now();
+    const freshStart = freshNow - 30 * 60 * 1000;
+    const freshEnd   = freshNow + 2 * 60 * 60 * 1000;
     const rows = snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
       .filter((b) => {
         const ms = b.slotStart.toMillis();
-        // Show only: paid, not archived, not currently in a live session, within window
-        return b.status === "paid" && !b.archived && !b.inSession && ms >= windowStart && ms <= windowEnd;
+        return (
+          b.status === "paid" &&   // only confirmed-paid bookings
+          !b.archived &&           // not archived by practitioner
+          !b.inSession &&          // not already in a live session
+          ms >= freshStart &&      // within rolling window
+          ms <= freshEnd
+        );
       });
     cb(rows);
   });
@@ -668,7 +677,7 @@ export async function pingPresence(bookingId: string, uid: string): Promise<void
   try {
     // Presence heartbeat — only write the timestamp field (not updatedAt) to
     // avoid triggering downstream watchSession listeners unnecessarily.
-    // Rate is intentionally low (60s interval) to conserve Firestore write quota.
+    // Rate is intentionally low (90s interval) to conserve Firestore write quota.
     await updateDoc(sessionRef(bookingId), {
       [`presence.${uid}`]: Date.now(),
     });

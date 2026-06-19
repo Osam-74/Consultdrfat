@@ -70,7 +70,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // ── Firestore subscriptions ──
   useEffect(() => {
     getSettings().then((s) => setPricePerMin(s.priceNGN / s.sessionLengthMin)).catch(() => {});
-    ensureSession(bookingId, DEFAULT_SETTINGS.sessionLengthMin).catch(() => {});
+    // ensureSession is called once per booking load.
+    // We use getSettings() to get the real duration; fall back to DEFAULT only if fetch fails.
+    getSettings()
+      .then((s) => ensureSession(bookingId, s.sessionLengthMin))
+      .catch(() => ensureSession(bookingId, DEFAULT_SETTINGS.sessionLengthMin));
     const u1 = watchSession(bookingId, setSession);
     const u2 = watchMessages(bookingId, setMessages);
     return () => { u1(); u2(); };
@@ -86,7 +90,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     if (session?.status === "complete") return; // stop pinging after session ends
     const uid = user.uid;
     pingPresence(bookingId, uid);
-    const interval = setInterval(() => pingPresence(bookingId, uid), 60_000);
+    const interval = setInterval(() => pingPresence(bookingId, uid), 90_000);
     return () => clearInterval(interval);
   }, [bookingId, user, session?.status]);
 

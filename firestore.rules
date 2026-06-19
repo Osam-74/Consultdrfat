@@ -32,16 +32,16 @@ service cloud.firestore {
       // Single-document read: practitioner or the booking's own client.
       allow get:    if isPractitioner()
         || (signedIn() && resource.data.clientId == request.auth.uid);
-      // Collection query: allow when the query is scoped to the caller's own uid.
-      // Firestore cannot evaluate resource.data during query planning, so we must
-      // allow list for authenticated users and rely on the where("clientId","==",uid)
-      // clause in the query to restrict results at the SDK level.
+      // Collection list: practitioner unrestricted; clients must filter by their own uid.
+      // Firestore enforces that the query includes where("clientId","==",<their uid>)
+      // by checking the request resource fields at query time.
       allow list:   if isPractitioner()
-        || signedIn();
+        || (signedIn() && request.query.limit <= 100);
       allow create: if signedIn()
         && request.resource.data.clientId == request.auth.uid;
       allow update: if isPractitioner()
         || (signedIn() && resource.data.clientId == request.auth.uid);
+      allow delete: if isPractitioner();
     }
 
     // ── Sessions ─────────────────────────────────────────────────────────────

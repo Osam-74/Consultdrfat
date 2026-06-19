@@ -202,7 +202,14 @@ export default function BookPage() {
           alert("Payment could not be completed. Your slot has been released. Please try again.");
         },
       });
-    }).catch(() => setStatus("idle"));
+    }).catch((err) => {
+      console.error("[pay] createBooking failed:", err);
+      setStatus("idle");
+      const msg = (err as { code?: string })?.code === "resource-exhausted"
+        ? "The service is temporarily at capacity. Please try again in a few minutes."
+        : "Could not create your booking. Please refresh the page and try again.";
+      alert(msg);
+    });
   };
 
   if (status === "booked" && bookingId) {
