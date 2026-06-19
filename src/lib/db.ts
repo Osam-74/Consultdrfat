@@ -150,13 +150,16 @@ export async function startSession(bookingId: string, durationMin: number) {
   await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
 }
 export async function completeSession(bookingId: string) {
+  // Mark session as complete
   await updateDoc(sessionRef(bookingId), { status: "complete", updatedAt: serverTimestamp() });
-  // Archive booking + clear inSession flag so waiting room empties immediately.
-  await updateDoc(doc(db, "bookings", bookingId), {
-    archived: true,
-    inSession: false,
-    completedAt: serverTimestamp(),
-  });
+  // Clear inSession + set completedAt on booking — but do NOT auto-archive.
+  // Practitioner archives manually. This keeps the booking visible in their list.
+  try {
+    await updateDoc(doc(db, "bookings", bookingId), {
+      inSession: false,
+      completedAt: serverTimestamp(),
+    });
+  } catch { /* non-fatal — session doc is the source of truth */ }
 }
 /** Called when client manually exits — removes them from the waiting room view. */
 export async function clearInSession(bookingId: string): Promise<void> {
@@ -484,6 +487,14 @@ export async function redeemDiscountCode(codeId: string, bookingId: string) {
     used: true,
     usedAt: Timestamp.now(),
     usedInBookingId: bookingId,
+  });
+}
+
+/** Watch all discount codes (practitioner view) — ordered by createdAt desc */
+export function watchDiscountCodes(cb: (codes: DiscountCode[]) => void) {
+  const q = query(collection(db, "discountCodes"), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DiscountCode)));
   });
 }
 

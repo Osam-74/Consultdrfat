@@ -9,21 +9,9 @@ import SessionRoom from "@/components/SessionRoom";
 import SignInForm from "@/components/SignInForm";
 
 function SignInGate() {
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--paper)", display: "flex", flexDirection: "column" }}>
-      <div className="wrap">
-        <nav className="nav">
-          <div className="brand">
-            <div className="brand-icon">🩺</div>
-            <div className="brand-text"><span>ConsultDrFat</span><small>Session Room</small></div>
-          </div>
-        </nav>
-      </div>
-      <div className="center" style={{ flex: 1 }}>
-        <SignInForm />
-      </div>
-    </div>
-  );
+  // SignInForm renders its own full-viewport layout (navy gradient background + white card).
+  // Do NOT wrap it in another background div — that causes the layered ugly look.
+  return <SignInForm title="Sign in to join your session" subtitle="Sign in to access your consultation room." />;
 }
 
 export default function SessionPage() {

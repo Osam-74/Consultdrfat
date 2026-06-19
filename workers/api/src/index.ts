@@ -277,10 +277,16 @@ export default {
     // Returns: { ok: true, url: "https://pub-xxxx.r2.dev/session-files/..." }
     if (url.pathname === "/upload" && req.method === "POST") {
       if (!env.SESSION_FILES) {
-        return json({ ok: false, error: "R2 bucket not configured" }, env, 503);
+        return json({
+          ok: false,
+          error: "R2 bucket binding missing. In Cloudflare dashboard: Worker → Settings → Bindings → Add R2 bucket, binding name = SESSION_FILES, bucket = consultdrfat-session-files. Then redeploy."
+        }, env, 503);
       }
       if (!env.R2_PUBLIC_BASE) {
-        return json({ ok: false, error: "R2_PUBLIC_BASE secret not set" }, env, 503);
+        return json({
+          ok: false,
+          error: "R2_PUBLIC_BASE not set. Run: wrangler secret put R2_PUBLIC_BASE → paste your bucket public URL (e.g. https://pub-xxxx.r2.dev). Or set it in Cloudflare dashboard → Worker → Settings → Variables."
+        }, env, 503);
       }
 
       let formData: FormData;

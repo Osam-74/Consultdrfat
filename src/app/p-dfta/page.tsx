@@ -6,8 +6,9 @@ import { useAuth } from "@/lib/auth";
 import {
   getSettings, saveSettings, getTemplates, saveTemplate, deleteTemplate,
   getExceptions, addException, deleteException, watchBookings, ensurePractitionerConfig,
-  archiveBooking, watchWaitingRoom, getSessionStatus,
+  archiveBooking, watchWaitingRoom, getSessionStatus, watchDiscountCodes,
 } from "@/lib/db";
+import type { DiscountCode } from "@/lib/db";
 import {
   PracticeSettings, DEFAULT_SETTINGS, AvailabilityTemplate, AvailabilityException, Booking,
 } from "@/lib/types";
@@ -104,7 +105,7 @@ function BookingCard({ b, onArchive }: { b: Booking; onArchive: (id: string) => 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function AdminPage() {
   const { user, role, loading, signOut } = useAuth();
-  const [tab, setTab]               = useState<"availability"|"bookings"|"settings">("availability");
+  const [tab, setTab]               = useState<"availability"|"bookings"|"discounts"|"settings">("availability");
   const [earningsFilter, setEarningsFilter] = useState<"week"|"month">("month");
   const [earningsFrom, setEarningsFrom] = useState("");
   const [earningsTo, setEarningsTo]   = useState("");
@@ -112,8 +113,10 @@ export default function AdminPage() {
   const [templates, setTemplates]   = useState<AvailabilityTemplate[]>([]);
   const [exceptions, setExceptions] = useState<AvailabilityException[]>([]);
   const [bookings, setBookings]     = useState<Booking[]>([]);
+  const [sessionStatuses, setSessionStatuses] = useState<Record<string, "none"|"idle"|"live"|"complete">>({});
+  const [discountCodes, setDiscountCodes]       = useState<DiscountCode[]>([]);
   const [saving, setSaving]         = useState(false);
-  const [bookFilter, setBookFilter] = useState<"upcoming"|"past"|"pending">("upcoming");
+  const [bookFilter, setBookFilter] = useState<"upcoming"|"past"|"pending"|"completed">("upcoming");
 
   // Waiting room
   const [waitingRoom, setWaitingRoom] = useState<Booking[]>([]);
@@ -140,7 +143,22 @@ export default function AdminPage() {
     }
   }, [role, user, refresh]);
 
-  useEffect(() => { if (role === "practitioner") return watchBookings(setBookings); }, [role]);
+  // Watch discount codes (practitioner only)
+  useEffect(() => {
+    if (role !== "practitioner") return;
+    return watchDiscountCodes(setDiscountCodes);
+  }, [role]);
+
+  useEffect(() => {
+    if (role !== "practitioner") return;
+    return watchBookings(async (rows) => {
+      setBookings(rows);
+      // Fetch session statuses for non-archived paid bookings
+      const paid = rows.filter(b => b.status === "paid" && !b.archived);
+      const results = await Promise.all(paid.map(b => getSessionStatus(b.id).then(s => [b.id, s] as const)));
+      setSessionStatuses(Object.fromEntries(results));
+    });
+  }, [role]);
 
   // Waiting room live subscription
   useEffect(() => {
@@ -189,7 +207,7 @@ export default function AdminPage() {
   const hasWindows = (ds: string) => { if(isBlocked(ds)) return false; return recurringWindows(ds).length>0||extraWindows(ds).length>0; };
 
   if (loading) return <div className="center" style={{minHeight:"100vh"}}><div style={{fontSize:40}}>🩺</div><p style={{color:"var(--muted)"}}>Loading…</p></div>;
-  if (!user) return <SignInForm />;
+  if (!user) return <SignInForm title="Practitioner Sign In" subtitle="Sign in to access your practitioner dashboard." />;
   if (role !== "practitioner") return (
     <div className="center" style={{minHeight:"100vh"}}>
       <div style={{fontSize:52}}>🚫</div>
@@ -207,7 +225,16 @@ export default function AdminPage() {
   // All bookings ever (including archived) for earnings — never reduce on archive
   const allPaid = bookings.filter(b => b.status === "paid");
 
-  const upcoming = nonArchived.filter(b => b.status === "paid" && b.slotStart.toDate() >= startOfToday);
+  // Upcoming = paid, not archived, session not complete yet
+  const upcoming = nonArchived.filter(b =>
+    b.status === "paid" &&
+    b.slotStart.toDate() >= startOfToday &&
+    (sessionStatuses[b.id] ?? "none") !== "complete"
+  );
+  // Completed = session doc is "complete" (but not yet archived by practitioner)
+  const completedNotArchived = nonArchived.filter(b =>
+    b.status === "paid" && (sessionStatuses[b.id] ?? "none") === "complete"
+  );
   const upcomingToday = upcoming.filter(b => b.slotStart.toDate() >= startOfToday && b.slotStart.toDate() < new Date(startOfToday.getTime() + 86400000));
   const upcomingThisWeek = upcoming.filter(b => b.slotStart.toDate() >= startOfWeek);
   const completedCount = bookings.filter(b => b.archived && b.status === "paid").length;
@@ -251,17 +278,14 @@ export default function AdminPage() {
     return { labels, values, max: Math.max(...values, 1) };
   })();
 
-  const filteredBookings = nonArchived
-    .filter(b => {
-      const bDate = b.slotStart.toDate();
-      if (bookFilter === "upcoming") return b.status === "paid" && bDate >= startOfToday;
-      if (bookFilter === "past")     return bDate < startOfToday || b.archived;
-      return true;
-    })
-    .sort((a,b) => {
-      if (bookFilter === "past") return b.slotStart.toMillis() - a.slotStart.toMillis();
-      return a.slotStart.toMillis() - b.slotStart.toMillis();
-    });
+  const filteredBookings = (
+    bookFilter === "upcoming"  ? upcoming :
+    bookFilter === "completed" ? completedNotArchived :
+    nonArchived.filter(b => { const bDate = b.slotStart.toDate(); return bDate < startOfToday || b.archived; })
+  ).slice().sort((a,b) => {
+    if (bookFilter === "past") return b.slotStart.toMillis() - a.slotStart.toMillis();
+    return a.slotStart.toMillis() - b.slotStart.toMillis();
+  });
 
   const cells = calCells(calMonth);
   const monthLabel = `${MON[calMonth.getMonth()]} ${calMonth.getFullYear()}`;
@@ -305,9 +329,9 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="adminbar">
-          {(["availability","bookings","settings"] as const).map(t=>(
+          {(["availability","bookings","discounts","settings"] as const).map(t=>(
             <button key={t} className={"tabbtn"+(tab===t?" active":"")} onClick={()=>setTab(t)}>
-              {t==="availability"?"🗓 Availability":t==="bookings"?"📋 Bookings":"⚙️ Settings"}
+              {t==="availability"?"🗓 Availability":t==="bookings"?"📋 Bookings":t==="discounts"?"🎁 Discounts":"⚙️ Settings"}
             </button>
           ))}
         </div>
@@ -523,6 +547,7 @@ export default function AdminPage() {
                 <div className="filter-pills">
                   {([
                     {key:"upcoming", label:"📅 Upcoming"},
+                    {key:"completed", label:"✅ Completed"},
                     {key:"past",     label:"🕐 Past"},
                   ] as const).map(f=>(
                     <button key={f.key} className={"filter-pill"+(bookFilter===f.key?" active":"")} onClick={()=>setBookFilter(f.key)}>
@@ -555,6 +580,58 @@ export default function AdminPage() {
         )}
 
         {/* ══ SETTINGS ══ */}
+        {tab==="discounts" && (
+          <div className="card">
+            <div className="card-header" style={{marginBottom:16}}>
+              <div>
+                <h3>🎁 Issued Discounts</h3>
+                <p className="card-sub">{discountCodes.length} discount{discountCodes.length!==1?"s":""} issued</p>
+              </div>
+            </div>
+            {discountCodes.length === 0 ? (
+              <div className="empty-state">
+                <div style={{fontSize:32,marginBottom:8}}>🎫</div>
+                <p style={{color:"var(--muted)"}}>No discounts issued yet. Send one from inside a session.</p>
+              </div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {discountCodes.slice().sort((a,b)=>b.createdAt.toMillis()-a.createdAt.toMillis()).map(dc => {
+                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
+                  const issued = dc.createdAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
+                  return (
+                    <div key={dc.id} style={{
+                      display:"flex",alignItems:"center",gap:12,padding:"12px 16px",
+                      borderRadius:12,background:"#f8fafc",border:"1px solid #e8edf3",flexWrap:"wrap"
+                    }}>
+                      <div style={{
+                        minWidth:56,textAlign:"center",padding:"6px 10px",borderRadius:8,
+                        background: dc.used ? "#f0f0f0" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
+                        color: dc.used ? "#999" : "#fff",fontWeight:800,fontSize:15,letterSpacing:".04em"
+                      }}>
+                        {dc.percent}%
+                      </div>
+                      <div style={{flex:1,minWidth:140}}>
+                        <div style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".06em",fontFamily:"monospace"}}>
+                          {dc.code}
+                          {dc.used && <span style={{marginLeft:8,fontSize:11,fontWeight:500,color:"#999",fontFamily:"sans-serif"}}>Used</span>}
+                          {!dc.used && dc.expiresAt.toMillis() < Date.now() && <span style={{marginLeft:8,fontSize:11,fontWeight:500,color:"#e53e3e",fontFamily:"sans-serif"}}>Expired</span>}
+                          {!dc.used && dc.expiresAt.toMillis() >= Date.now() && <span style={{marginLeft:8,fontSize:11,fontWeight:600,color:"#0E8A7A",fontFamily:"sans-serif"}}>Active</span>}
+                        </div>
+                        <div style={{fontSize:12,color:"var(--muted)",marginTop:3}}>
+                          For: <strong>{dc.createdForName}</strong> ({dc.createdFor})
+                        </div>
+                        <div style={{fontSize:11,color:"var(--muted-2)",marginTop:2}}>
+                          Issued {issued} · Expires {exp}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab==="settings" && (
           <div style={{display:"flex",flexDirection:"column",gap:20}}>
             {/* ── Analytics Chart ── */}

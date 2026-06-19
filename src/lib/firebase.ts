@@ -25,4 +25,5 @@ export const db: Firestore    = typeof window === "undefined" ? ({} as Firestore
 
 export const PRACTITIONER_UID    = process.env.NEXT_PUBLIC_PRACTITIONER_UID    || "";
 export const PAYSTACK_PUBLIC_KEY  = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "";
-export const API_BASE             = process.env.NEXT_PUBLIC_API_BASE            || "";
+// Known worker URL — used as fallback if env var is not configured in Vercel.
+export const API_BASE             = process.env.NEXT_PUBLIC_API_BASE            || "https://consultdrfat-api.ogmediainc.workers.dev";

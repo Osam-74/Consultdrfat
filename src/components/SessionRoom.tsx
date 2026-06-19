@@ -91,17 +91,22 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     return () => clearInterval(interval);
   }, [bookingId, user]);
 
-  // Watch for other user's presence in session doc (refresh every tick)
+  // Watch presence — re-check every 15s AND whenever session doc changes
   useEffect(() => {
-    if (!session || !user) return;
-    const presence = (session as unknown as Record<string, unknown>).presence as Record<string, number> | undefined;
-    if (!presence) return;
-    const now = Date.now();
-    const THRESHOLD = 75_000; // 75s — generous buffer for 30s ping interval
-    const otherSeen = Object.entries(presence)
-      .filter(([uid]) => uid !== user.uid)
-      .some(([, lastSeen]) => now - lastSeen < THRESHOLD);
-    setOtherOnline(otherSeen);
+    const check = () => {
+      if (!session || !user) return;
+      const presence = (session as unknown as Record<string, unknown>).presence as Record<string, number> | undefined;
+      if (!presence) return;
+      const nowMs = Date.now();
+      const THRESHOLD = 120_000; // 120s — allows up to 3 missed 30s pings
+      const otherSeen = Object.entries(presence)
+        .filter(([uid]) => uid !== user.uid)
+        .some(([, lastSeen]) => nowMs - (lastSeen as number) < THRESHOLD);
+      setOtherOnline(otherSeen);
+    };
+    check();
+    const interval = setInterval(check, 15_000);
+    return () => clearInterval(interval);
   }, [session, user]);
   useEffect(() => { msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight }); }, [messages.length]);
 
@@ -291,11 +296,12 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // ── Discount code generation (practitioner) ──
   const sendDiscount = async () => {
     if (!clientEmail || !clientUid || !clientName) {
-      alert("Client info not available yet. Wait for them to join the session.");
+      alert("Client info not available yet. Wait a moment for the client to connect.");
       return;
     }
     setDiscountSending(true);
     try {
+      // 1. Create the discount code in Firestore (fast — single write)
       const dc = await createDiscountCode({
         percent: discountPct,
         clientEmail,
@@ -304,18 +310,21 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
         bookingId,
       });
       setDiscountCode(dc.code);
-      // Send in-session chat message visible to client
+
+      // 2. Send in-session chat message so client sees code immediately
       await sendMessage(bookingId, "system",
-        `🎁 You've received a ${discountPct}% discount for your next consultation! Your code: ${dc.code} (valid 90 days)`
+        `🎁 You've received a ${discountPct}% discount! Code: ${dc.code} (valid 90 days — use it on your next booking).`
       );
-      // Queue email
-      await sendDiscountEmail({
+
+      // 3. Fire-and-forget the email — don't await it (avoids blocking on mail extension)
+      sendDiscountEmail({
         toEmail: clientEmail,
         clientName,
         code: dc.code,
         percent: discountPct,
         expiresAt: dc.expiresAt.toDate(),
-      });
+      }).catch((e) => console.warn("Discount email queue failed (non-fatal):", e));
+
       setDiscountSent(true);
       setShowDiscount(false);
     } catch (err) {
@@ -471,8 +480,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <div className="vn">{voiceLive ? "Voice connected" : micOn ? "Mic ready" : sessionLive ? "Join voice to talk" : "Voice locked"}</div>
             <div className="controls">
               {!localStreamRef.current
-                ? <button className="ctl" onClick={joinVoice} disabled={!sessionLive} title={!sessionLive ? "Waiting for session to start…" : undefined}>
-                    <span className="knob">🎧</span>{sessionLive ? "Join voice" : "Waiting…"}
+                ? <button className="ctl" onClick={joinVoice}
+                    disabled={!sessionLive}
+                    style={sessionLive ? {} : {opacity:.45, cursor:"not-allowed"}}
+                    title={sessionLive ? "Click to join voice" : "Waiting for session to start…"}>
+                    <span className="knob">🎧</span>{sessionLive ? "🔴 Join Voice" : "Waiting…"}
                   </button>
                 : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute}>
                     <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
@@ -566,7 +578,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 disabled={!sessionLive}
                 style={!sessionLive ? {opacity:.45, cursor:"not-allowed"} : {}}
               />
-              {/* File attachment button for client (when practitioner enabled it AND session is live) */}
+              {/* File attachment button for client — only visible when practitioner enables it */}
+              {!isPract && sessionLive && !attachmentsOn && (
+                <span style={{fontSize:11,color:"rgba(255,255,255,.35)",padding:"0 4px",alignSelf:"center"}}>📎 off</span>
+              )}
               {!isPract && attachmentsOn && sessionLive && (
                 <>
                   <button
@@ -605,7 +620,14 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </button>
             )}
             {session.status === "live" && (
-              <button className="dbtn" onClick={() => completeSession(bookingId)}>End now</button>
+              <button className="dbtn" onClick={async () => {
+                try {
+                  await completeSession(bookingId);
+                } catch (err) {
+                  console.error("End session error:", err);
+                  alert("Could not end session. Check your connection and try again.");
+                }
+              }}>End now</button>
             )}
 
             {/* Gift icon only — no text, tooltip explains */}
@@ -727,7 +749,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <p>The session time has elapsed. You can end the session or offer the client extra paid time.</p>
             <div className="ov-actions">
               <button className="obtn amber" onClick={() => setChosen(0)}>+ Offer more time</button>
-              <button className="obtn red" onClick={() => completeSession(bookingId)}>End session</button>
+              <button className="obtn red" onClick={async () => {
+                try { await completeSession(bookingId); }
+                catch (err) { console.error(err); alert("Could not end session — check connection and try again."); }
+              }}>End session</button>
             </div>
           </div>
         );
