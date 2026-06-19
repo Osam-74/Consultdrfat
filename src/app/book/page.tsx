@@ -196,14 +196,13 @@ export default function BookPage() {
     <div style={{ minHeight: "100vh", background: "var(--paper)" }}>
       <div className="wrap">
         <nav className="nav">
-          <div className="brand">
+          <Link href="/" className="brand" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:10}}>
             <div className="brand-icon">🩺</div>
             <div className="brand-text">
               <span>ConsultDrFat</span><small>Medical Consultations</small>
             </div>
-          </div>
+          </Link>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <Link href="/" className="btn btn-ghost btn-sm">← Home</Link>
             <button className="btn btn-ghost btn-sm" onClick={() => signOut()}>Sign Out</button>
           </div>
         </nav>

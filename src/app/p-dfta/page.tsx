@@ -38,7 +38,7 @@ const BrandNav = ({ onSignOut }: { onSignOut: () => void }) => (
       <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
     </div>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <Link href="/" className="btn btn-ghost btn-sm">← Site</Link>
+      
       <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
     </div>
   </nav>
@@ -278,13 +278,13 @@ export default function AdminPage() {
 
         {/* Stats grid — Upcoming full width, then Completed + Waiting */}
         <div className="dash-stats-grid">
-          {/* Upcoming — full width row */}
-          <div className="stat-card stat-card-wide">
-            <div className="stat-icon">📅</div>
-            <div>
-              <div className="stat-val" style={{color:"var(--teal)"}}>{upcoming.length}</div>
-              <div className="stat-lbl">Upcoming Sessions</div>
-              <div className="stat-summary">
+          {/* Upcoming — full width row, teal/navy gradient */}
+          <div className="stat-card stat-card-wide stat-card-hero">
+            <div className="stat-icon" style={{fontSize:32}}>📅</div>
+            <div style={{flex:1}}>
+              <div className="stat-val" style={{color:"#fff",fontSize:36}}>{upcoming.length}</div>
+              <div className="stat-lbl" style={{color:"rgba(255,255,255,.75)"}}>Upcoming Sessions</div>
+              <div className="stat-summary" style={{color:"rgba(255,255,255,.55)"}}>
                 {upcomingToday.length} booking{upcomingToday.length!==1?"s":""} today &nbsp;·&nbsp; {upcomingThisWeek.length} this week
               </div>
             </div>
@@ -557,41 +557,11 @@ export default function AdminPage() {
         {/* ══ SETTINGS ══ */}
         {tab==="settings" && (
           <div style={{display:"flex",flexDirection:"column",gap:20}}>
-            <div className="card">
-              <div className="card-header" style={{marginBottom:20}}>
-                <div>
-                  <h3>⚙️ Practice Settings</h3>
-                  <p className="card-sub">Configure pricing, session length, and booking window.</p>
-                </div>
-              </div>
-              <div className="settings-grid">
-                {[
-                  {key:"practitionerName",label:"Practitioner Name",type:"text",hint:"Displayed to clients"},
-                  {key:"priceNGN",label:"Session Price (₦)",type:"number",hint:"Amount per session"},
-                  {key:"sessionLengthMin",label:"Session Length (min)",type:"number",hint:"Duration of each consultation"},
-                  {key:"bufferMin",label:"Buffer Between Sessions (min)",type:"number",hint:"Gap between back-to-back bookings"},
-                  {key:"bookingWindowDays",label:"Booking Window (days)",type:"number",hint:"How far ahead clients can book"},
-                  {key:"rescheduleFeeNGN",label:"Reschedule Fee (₦)",type:"number",hint:"One-time fee clients pay to reschedule"},
-                ].map(({key,label,type,hint})=>(
-                  <div key={key} className="settings-field">
-                    <label>{label}</label>
-                    <input type={type} value={(settings as unknown as Record<string,unknown>)[key] as string|number}
-                      onChange={e=>setSettings({...settings,[key]:type==="number"?+e.target.value:e.target.value})}/>
-                    <span className="field-hint">{hint}</span>
-                  </div>
-                ))}
-              </div>
-              <button className="btn btn-primary" style={{marginTop:14}} disabled={saving}
-                onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
-                {saving?"Saving…":"💾 Save Settings"}
-              </button>
-            </div>
-
-            {/* ── Earnings Chart ── */}
+            {/* ── Analytics Chart ── */}
             <div className="card">
               <div className="card-header" style={{marginBottom:16}}>
                 <div>
-                  <h3>💰 Earnings</h3>
+                  <h3>📊 Analytics</h3>
                   <p className="card-sub">Total: {ngn(totalEarnings)} across all completed sessions</p>
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
@@ -632,6 +602,37 @@ export default function AdminPage() {
                   );
                 })}
               </div>
+            </div>
+
+            {/* ── Practice Settings ── */}
+            <div className="card">
+              <div className="card-header" style={{marginBottom:20}}>
+                <div>
+                  <h3>⚙️ Practice Settings</h3>
+                  <p className="card-sub">Configure pricing, session length, and booking window.</p>
+                </div>
+              </div>
+              <div className="settings-grid">
+                {[
+                  {key:"practitionerName",label:"Practitioner Name",type:"text",hint:"Displayed to clients"},
+                  {key:"priceNGN",label:"Session Price (₦)",type:"number",hint:"Amount per session"},
+                  {key:"sessionLengthMin",label:"Session Length (min)",type:"number",hint:"Duration of each consultation"},
+                  {key:"bufferMin",label:"Buffer Between Sessions (min)",type:"number",hint:"Gap between back-to-back bookings"},
+                  {key:"bookingWindowDays",label:"Booking Window (days)",type:"number",hint:"How far ahead clients can book"},
+                  {key:"rescheduleFeeNGN",label:"Reschedule Fee (₦)",type:"number",hint:"One-time fee clients pay to reschedule"},
+                ].map(({key,label,type,hint})=>(
+                  <div key={key} className="settings-field">
+                    <label>{label}</label>
+                    <input type={type} value={(settings as unknown as Record<string,unknown>)[key] as string|number}
+                      onChange={e=>setSettings({...settings,[key]:type==="number"?+e.target.value:e.target.value})}/>
+                    <span className="field-hint">{hint}</span>
+                  </div>
+                ))}
+              </div>
+              <button className="btn btn-primary" style={{marginTop:14}} disabled={saving}
+                onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
+                {saving?"Saving…":"💾 Save Settings"}
+              </button>
             </div>
           </div>
         )}

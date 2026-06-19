@@ -577,18 +577,26 @@ export async function getLiveSession(bookingId: string): Promise<SessionDoc | nu
  *  - Clients already in the room (slot started up to 30 min ago)
  */
 export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
-  const windowStart = Timestamp.fromMillis(Date.now() - 30 * 60 * 1000); // 30 min ago
-  const windowEnd   = Timestamp.fromMillis(Date.now() + 90 * 60 * 1000); // 90 min ahead
+  // Rolling window: recalculate timestamps on every snapshot tick so the
+  // window doesn't go stale. We query broadly (8 h ahead) then filter in
+  // JS so we can also exclude archived bookings without a compound index.
   const q = query(
     collection(db, "bookings"),
     where("status", "==", "paid"),
-    where("slotStart", ">=", windowStart),
-    where("slotStart", "<=", windowEnd),
     orderBy("slotStart", "asc")
   );
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
-  );
+  return onSnapshot(q, (snap) => {
+    const nowMs = Date.now();
+    const windowStart = nowMs - 30 * 60 * 1000;  // 30 min ago (grace: client arrived early)
+    const windowEnd   = nowMs + 8 * 60 * 60 * 1000; // 8 hours ahead
+    const rows = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => {
+        const ms = b.slotStart.toMillis();
+        return !b.archived && ms >= windowStart && ms <= windowEnd;
+      });
+    cb(rows);
+  });
 }
 
 /** Archive a booking (soft-delete from active list) */
