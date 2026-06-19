@@ -38,17 +38,26 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
         // Unsubscribe any previous session watcher
         if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
 
-        // Find the most recent non-archived booking
-        const active = bookings.find((b) => !b.archived);
+        // Find the most recent paid non-archived booking
+        const active = bookings.find((b) => b.status === "paid" && !b.archived);
         if (!active) { setActiveSessionId(null); return; }
 
-        // Watch session doc in real-time — react instantly when status → live or complete
+        // Use cached sessionStatus on the booking doc first (no extra read).
+        // Only open a real-time watchSession listener if the booking status is ambiguous.
+        const cachedStatus = (active as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+        if (cachedStatus === "complete") { setActiveSessionId(null); return; }
+        if (cachedStatus === "live")     { setActiveSessionId(active.id); return; }
+
+        // Ambiguous — open a one-time session doc watch, cancel after first result
         const unsub = watchSession(active.id, (sess) => {
-          if (!sess || (sess.status as string) === "complete" || (sess.status as string) === "idle") {
+          if (!sess || sess.status === "complete" || sess.status === "idle") {
             setActiveSessionId(null);
           } else if (sess.status === "live") {
             setActiveSessionId(active.id);
           }
+          // Unsubscribe after first read to avoid a permanent listener
+          unsub();
+          if (sessionUnsubRef.current === unsub) sessionUnsubRef.current = null;
         });
         sessionUnsubRef.current = unsub;
       } catch {
@@ -57,8 +66,8 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
     };
 
     setup();
-    // Re-check bookings every 60s in case a new booking appears
-    const iv = setInterval(setup, 60_000);
+    // Poll every 5 minutes — enough for the "Return to session" bubble UX
+    const iv = setInterval(setup, 5 * 60_000);
 
     return () => {
       cancelled = true;

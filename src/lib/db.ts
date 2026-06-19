@@ -102,13 +102,20 @@ export async function getBookingById(bookingId: string): Promise<Booking | null>
   return { id: snap.id, ...(snap.data() as Omit<Booking, "id">) };
 }
 export async function markBookingPaid(id: string, paystackRef: string) {
-  await updateDoc(doc(db, "bookings", id), { status: "paid", paystackRef });
+  await updateDoc(doc(db, "bookings", id), { status: "paid", paystackRef, sessionStatus: "idle" });
 }
 export async function cancelBooking(id: string) {
   await updateDoc(doc(db, "bookings", id), { status: "cancelled" });
 }
 export function watchBookings(cb: (rows: Booking[]) => void) {
-  const q = query(collection(db, "bookings"), orderBy("slotStart", "asc"));
+  // Only fetch non-archived bookings to minimise reads.
+  // sessionStatus is now embedded on the booking doc so no extra getSessionStatus() calls needed.
+  const q = query(
+    collection(db, "bookings"),
+    where("archived", "!=", true),
+    orderBy("archived"),
+    orderBy("slotStart", "asc")
+  );
   return onSnapshot(q, (snap) =>
     cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
   );
@@ -147,7 +154,8 @@ export async function startSession(bookingId: string, durationMin: number) {
     updatedAt: serverTimestamp(),
   });
   // Mark booking as inSession so waiting room removes the client immediately.
-  await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
+  // Also cache sessionStatus on the booking so dashboard never needs extra reads.
+  await updateDoc(doc(db, "bookings", bookingId), { inSession: true, sessionStatus: "live" });
 }
 export async function completeSession(bookingId: string) {
   // Mark session as complete
@@ -158,6 +166,7 @@ export async function completeSession(bookingId: string) {
     await updateDoc(doc(db, "bookings", bookingId), {
       inSession: false,
       completedAt: serverTimestamp(),
+      sessionStatus: "complete",
     });
   } catch { /* non-fatal — session doc is the source of truth */ }
 }
@@ -492,10 +501,14 @@ export async function redeemDiscountCode(codeId: string, bookingId: string) {
 
 /** Watch all discount codes (practitioner view) — ordered by createdAt desc */
 export function watchDiscountCodes(cb: (codes: DiscountCode[]) => void) {
+  // One-time fetch instead of a live listener — discount codes change rarely.
+  // Dashboard calls refresh() manually after creating/redeeming a code.
   const q = query(collection(db, "discountCodes"), orderBy("createdAt", "desc"));
-  return onSnapshot(q, (snap) => {
+  getDocs(q).then((snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DiscountCode)));
-  });
+  }).catch(() => cb([]));
+  // Return no-op unsubscribe to keep call-site compatible
+  return () => {};
 }
 
 /** Queue a discount notification email */
@@ -699,6 +712,15 @@ export function watchActiveBookings(cb: (rows: Booking[]) => void) {
 
 /** Get session status for a booking (for waiting room check) */
 export async function getSessionStatus(bookingId: string): Promise<"none" | "idle" | "live" | "complete"> {
+  // Fast path: check booking doc's cached sessionStatus field (written by startSession/completeSession)
+  try {
+    const bSnap = await getDoc(doc(db, "bookings", bookingId));
+    if (bSnap.exists()) {
+      const cached = (bSnap.data() as Record<string, unknown>).sessionStatus as string | undefined;
+      if (cached === "live" || cached === "complete" || cached === "idle") return cached;
+    }
+  } catch { /* fall through to session doc */ }
+  // Slow path: read the session doc directly
   try {
     const snap = await getDoc(doc(db, "sessions", bookingId));
     if (!snap.exists()) return "none";

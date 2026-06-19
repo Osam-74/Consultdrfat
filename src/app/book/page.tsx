@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
   getSettings, getTemplates, getExceptions, getActiveBookings, createBooking, markBookingPaid,
-  getClientBookings, getLiveSession, cancelBooking, rescheduleBooking, watchSessionStatus,
+  getClientBookings, getLiveSession, cancelBooking, rescheduleBooking,
 } from "@/lib/db";
 import { validateDiscountCode, redeemDiscountCode } from "@/lib/db";
 import { generateSlots, groupByDay, Slot } from "@/lib/slots";
@@ -107,33 +107,29 @@ export default function BookPage() {
     })();
   }, [user, loading]);
 
-  // Real-time session status watchers for all recent bookings.
-  // When the practitioner ends a session, the client's page updates immediately.
+  // Derive session status from the cached field on each booking doc.
+  // This avoids opening one watchSessionStatus listener per booking (quota-heavy).
+  // The booking doc is updated by startSession/completeSession, so status stays fresh.
   useEffect(() => {
     if (recentItems.length === 0) return;
-    const unsubs = recentItems.map(({ booking: bk }) =>
-      watchSessionStatus(bk.id, (liveStatus) => {
-        setRecentItems(prev => prev.map(item => {
-          if (item.booking.id !== bk.id) return item;
-          const now = Date.now();
-          const slotMs = item.booking.slotStart.toMillis();
-          let sessionStatus: SessionStatus;
-          if (liveStatus === "live") {
-            sessionStatus = "live";
-          } else if (liveStatus === "complete") {
-            sessionStatus = "completed";
-          } else if (slotMs > now) {
-            sessionStatus = "upcoming";
-          } else {
-            sessionStatus = "completed";
-          }
-          return { ...item, sessionStatus };
-        }));
-      })
-    );
-    return () => unsubs.forEach(u => u());
+    setRecentItems(prev => prev.map(item => {
+      const cached = (item.booking as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+      const now = Date.now();
+      const slotMs = item.booking.slotStart.toMillis();
+      let sessionStatus: SessionStatus;
+      if (cached === "live") {
+        sessionStatus = "live";
+      } else if (cached === "complete") {
+        sessionStatus = "completed";
+      } else if (slotMs > now) {
+        sessionStatus = "upcoming";
+      } else {
+        sessionStatus = "completed";
+      }
+      return { ...item, sessionStatus };
+    }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recentItems.length]); // only re-subscribe when item count changes
+  }, [recentItems.length]);
 
   const byDay = useMemo(() => groupByDay(slots), [slots]);
   const cells = useMemo(() => {

@@ -151,28 +151,32 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (role !== "practitioner") return;
-    return watchBookings(async (rows) => {
+    // Single listener — sessionStatus is embedded on the booking doc (set by startSession/completeSession).
+    // No secondary getSessionStatus() reads needed. Waiting room is derived from the same snapshot.
+    return watchBookings((rows) => {
       setBookings(rows);
-      // Fetch session statuses for non-archived paid bookings
-      const paid = rows.filter(b => b.status === "paid" && !b.archived);
-      const results = await Promise.all(paid.map(b => getSessionStatus(b.id).then(s => [b.id, s] as const)));
-      setSessionStatuses(Object.fromEntries(results));
+      // Build session statuses from the embedded field (no extra reads)
+      const statuses: Record<string, "idle" | "live" | "complete" | "none"> = {};
+      rows.forEach(b => {
+        if (b.status === "paid" && !b.archived) {
+          const ss = (b as unknown as Record<string, unknown>).sessionStatus as string;
+          statuses[b.id] = (ss === "live" || ss === "complete" || ss === "none") ? ss : "idle";
+        }
+      });
+      setSessionStatuses(statuses);
+      // Derive waiting room from same snapshot — paid, not archived, not in session, within 2h window
+      const freshNow = Date.now();
+      const windowStart = freshNow - 30 * 60 * 1000;
+      const windowEnd   = freshNow + 2 * 60 * 60 * 1000;
+      const waiting = rows.filter(b => {
+        const ms = b.slotStart.toMillis();
+        return b.status === "paid" && !b.archived && !b.inSession && ms >= windowStart && ms <= windowEnd;
+      });
+      setWaitingRoom(waiting);
+      const ws: Record<string, "idle" | "live" | "complete" | "none"> = {};
+      waiting.forEach(b => { ws[b.id] = statuses[b.id] || "idle"; });
+      setWaitingSessions(ws);
     });
-  }, [role]);
-
-  // Waiting room live subscription
-  useEffect(() => {
-    if (role !== "practitioner") return;
-    const unsub = watchWaitingRoom(async (rows) => {
-      setWaitingRoom(rows);
-      // Check session status for each waiting booking
-      const statuses: Record<string, string> = {};
-      await Promise.all(rows.map(async (b) => {
-        statuses[b.id] = await getSessionStatus(b.id);
-      }));
-      setWaitingSessions(statuses);
-    });
-    return unsub;
   }, [role]);
 
   const handleArchive = async (id: string) => {
