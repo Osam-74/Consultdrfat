@@ -6,7 +6,7 @@ import {
   watchSession, watchMessages, ensureSession, startSession, completeSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
-  getBookingById,
+  getBookingById, pingPresence, watchBookings,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, getMicStream, VoiceHandle } from "@/lib/webrtc";
@@ -48,6 +48,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [clientName, setClientName] = useState("");
   const [clientUid, setClientUid] = useState("");
 
+  // Presence — track who is online
+  const [otherOnline, setOtherOnline] = useState(false);
+  // Real next client time (practitioner only)
+  const [nextClientLabel, setNextClientLabel] = useState<string | null>(null);
+
   // Attachment (client side)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -72,9 +77,32 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   }, [bookingId]);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t); }, []);
+
+  // ── Presence heartbeat — ping every 15s, detect other user online (< 30s ago) ──
+  useEffect(() => {
+    if (!user || !session) return;
+    const uid = user.uid;
+    // Ping immediately
+    pingPresence(bookingId, uid);
+    const interval = setInterval(() => pingPresence(bookingId, uid), 15_000);
+    return () => clearInterval(interval);
+  }, [bookingId, user, session]);
+
+  // Watch for other user's presence in session doc
+  useEffect(() => {
+    if (!session?.presence || !user) return;
+    const now = Date.now();
+    const THRESHOLD = 30_000; // 30s
+    const presenceMap = session.presence as Record<string, number>;
+    const otherSeen = Object.entries(presenceMap)
+      .filter(([uid]) => uid !== user.uid)
+      .some(([, lastSeen]) => now - lastSeen < THRESHOLD);
+    setOtherOnline(otherSeen);
+  }, [session?.presence, user]);
   useEffect(() => { msgsRef.current?.scrollTo({ top: msgsRef.current.scrollHeight }); }, [messages.length]);
 
   // Load client info directly from the booking document (already stored at payment time)
+  // Also compute next client label for the dock
   useEffect(() => {
     if (!isPract) return;
     getBookingById(bookingId).then((b) => {
@@ -83,6 +111,25 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       setClientName(b.clientName ?? "");
       setClientUid(b.clientId ?? "");
     }).catch(() => {});
+
+    // Find the next upcoming paid booking after this one (live subscription)
+    const unsubNext = watchBookings((allBookings) => {
+      const nowMs = Date.now();
+      const currentSlotMs = allBookings.find(b => b.id === bookingId)?.slotStart.toMillis() ?? nowMs;
+      const next = allBookings
+        .filter(b => b.status === "paid" && !b.archived && b.id !== bookingId && b.slotStart.toMillis() > currentSlotMs)
+        .sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis())[0];
+      if (next) {
+        const d = next.slotStart.toDate();
+        const label = d.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+        setNextClientLabel(label);
+        setNextClient(bookingId, label);
+      } else {
+        setNextClientLabel(null);
+      }
+    });
+    return unsubNext;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, isPract]);
 
   // ── Practitioner file upload handler ──
@@ -342,19 +389,22 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     <div className="room-bg">
       <audio ref={remoteAudioRef} autoPlay playsInline hidden />
       <div className="room-top">
-        <div className="brand">
+        {/* Logo → home */}
+        <Link href="/" style={{display:"flex",alignItems:"center",gap:8,textDecoration:"none"}}>
           <div className="brand-icon" style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,var(--teal),var(--sky))",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14}}>🩺</div>
-          <span style={{color:"#fff",fontWeight:700,fontSize:16}}>ConsultDrFat</span>
-        </div>
+          <span style={{color:"#fff",fontWeight:700,fontSize:15}}>ConsultDrFat</span>
+        </Link>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <div className="tag">Live session · {role}</div>
-          {isPract
-            ? <Link href="/p-dfta/" style={{background:"rgba(255,255,255,.12)",color:"#fff",borderRadius:8,padding:"5px 13px",fontSize:12,fontWeight:600,textDecoration:"none",border:"1px solid rgba(255,255,255,.2)"}}>🏠 Dashboard</Link>
-            : <>
-                <Link href="/book/" style={{background:"rgba(255,255,255,.12)",color:"#fff",borderRadius:8,padding:"5px 13px",fontSize:12,fontWeight:600,textDecoration:"none",border:"1px solid rgba(255,255,255,.2)"}}>📅 My Bookings</Link>
-                <Link href="/" style={{background:"rgba(255,255,255,.12)",color:"#fff",borderRadius:8,padding:"5px 13px",fontSize:12,fontWeight:600,textDecoration:"none",border:"1px solid rgba(255,255,255,.2)"}}>🏠 Home</Link>
-              </>
-          }
+          {/* Slim live badge */}
+          <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",borderRadius:20,padding:"4px 10px",border:"1px solid rgba(255,255,255,.18)"}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:"#4ade80",display:"inline-block",boxShadow:"0 0 0 2px rgba(74,222,128,.3)",animation:"pulse 1.5s infinite"}} />
+            <span style={{color:"rgba(255,255,255,.85)",fontSize:11,fontWeight:600,textTransform:"capitalize"}}>{isPract ? "Practitioner" : "Client"}</span>
+          </div>
+          {/* Presence indicator */}
+          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:otherOnline?"#4ade80":"rgba(255,255,255,.4)"}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"rgba(255,255,255,.25)",display:"inline-block"}} />
+            {isPract ? "Client" : "Dr. Fat"} {otherOnline ? "online" : "offline"}
+          </div>
         </div>
       </div>
 
@@ -368,12 +418,32 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               <div className={"avatar " + (isPract ? "cl" : "dr")}>{isPract ? "CL" : "DR"}</div>
               <div>
                 <div className="nm">{isPract ? "Your client" : "Your practitioner"}</div>
-                <div className="role">{voiceLive ? "Voice connected" : "In room"}</div>
+                <div className="role" style={{display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"#94a3b8",display:"inline-block",flexShrink:0}} />
+                  {otherOnline ? (voiceLive ? "Online · Voice connected" : "Online") : "Offline"}
+                </div>
               </div>
             </div>
-            <div className="conn">
-              <span className={"led" + (complete ? " off" : "")} />
-              {complete ? "Time complete" : "Connected"}
+            <div className="conn" style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                <span className={"led" + (complete ? " off" : "")} />
+                {complete ? "Time complete" : "Connected"}
+              </div>
+              {/* Mic feed visualizer — shows when your mic is transmitting */}
+              {micOn && localStreamRef.current && (
+                <div style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"rgba(255,255,255,.55)"}}>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:12}}>
+                    {[0.4,0.7,1,0.6,0.85].map((h,i) => (
+                      <div key={i} style={{
+                        width:3,height:`${h*scale*12}px`,borderRadius:2,
+                        background:`rgba(74,222,128,${0.5+h*0.5})`,
+                        transition:"height .1s",minHeight:2
+                      }} />
+                    ))}
+                  </div>
+                  <span>Mic live</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -507,25 +577,21 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           <div className="dock">
             <span className="lbl">Controls</span>
             {session.status !== "live" && (
-              <button className="dbtn primary" onClick={() => {
-                startSession(bookingId, session.durationMin);
-                // Send client metadata as a hidden system message so discount works
-                if (user) {
-                  // Practitioner doesn't have client info directly — client sends theirs on join
-                }
-              }}>Start session</button>
+              <button className="dbtn primary" onClick={() => startSession(bookingId, session.durationMin)}>
+                Start session
+              </button>
             )}
             {session.status === "live" && (
               <button className="dbtn" onClick={() => completeSession(bookingId)}>End now</button>
             )}
 
-            {/* Discount code button */}
+            {/* Gift icon only — no text, tooltip explains */}
             <button
-              className={"dbtn" + (discountSent ? " success" : "")}
+              className={"dbtn icon-only" + (discountSent ? " success" : "")}
               onClick={() => { setShowDiscount(!showDiscount); setDiscountSent(false); }}
-              title="Generate a discount code for this client"
+              title={discountSent ? `Discount sent: ${discountCode}` : "Give client a discount code"}
             >
-              {discountSent ? `✓ ${discountCode} sent` : "🎁 Give discount"}
+              {discountSent ? "✓" : "🎁"}
             </button>
 
             {/* Discount picker panel */}
@@ -579,21 +645,22 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </>
             )}
 
-            {/* Attachment toggle — allow client to share files */}
+            {/* File sharing toggle — icon + toggle only, no text label.
+                When ON: client can attach files. When OFF: client upload button is hidden. */}
             <div
-              className={"toggle" + (attachmentsOn ? " on" : "")}
+              className={"toggle icon-toggle" + (attachmentsOn ? " on" : "")}
               onClick={() => setAttachmentsEnabled(bookingId, !attachmentsOn)}
-              title="Allow client to attach files"
+              title={attachmentsOn ? "Client file sharing ON — click to disable" : "Client file sharing OFF — click to enable"}
             >
-              <span className="sw" /> Allow client file uploads
+              📎 <span className="sw" />
             </div>
 
-            <div
-              className={"toggle" + (session.nextClientAt ? " on" : "")}
-              onClick={() => setNextClient(bookingId, session.nextClientAt ? null : "3:30")}
-            >
-              <span className="sw" /> Next client at 3:30
-            </div>
+            {/* Next client — live from Firestore bookings */}
+            {nextClientLabel && (
+              <div className="dock-next-client" title="Your next scheduled client">
+                ⏭ Next at {nextClientLabel}
+              </div>
+            )}
           </div>
         )}
       </div>

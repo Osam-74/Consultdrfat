@@ -83,12 +83,12 @@ function BookingCard({ b, onArchive }: { b: Booking; onArchive: (id: string) => 
           {b.discountCode && <div className="brow-detail-line">🏷 <span>{b.discountCode} ({b.discountPercent}% off)</span></div>}
           <div className="brow-detail-line">🗓 <span>{fmtDT(d)} — {end.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span></div>
           <div className="brow-detail-actions">
-            {b.status === "paid" && (
+            {b.status === "paid" && !b.archived && (
               <Link className="btn btn-sm btn-primary" href={`/session/?id=${b.id}&role=practitioner`}>
                 🚀 Start Session
               </Link>
             )}
-            {isPast && (
+            {!b.archived && (
               <button className="btn btn-sm btn-ghost" style={{color:"var(--muted)"}} disabled={archiving}
                 onClick={async () => { setArchiving(true); await onArchive(b.id); }}>
                 {archiving ? "…" : "🗄 Archive"}
@@ -105,6 +105,9 @@ function BookingCard({ b, onArchive }: { b: Booking; onArchive: (id: string) => 
 export default function AdminPage() {
   const { user, role, loading, signOut } = useAuth();
   const [tab, setTab]               = useState<"availability"|"bookings"|"settings">("availability");
+  const [earningsFilter, setEarningsFilter] = useState<"week"|"month">("month");
+  const [earningsFrom, setEarningsFrom] = useState("");
+  const [earningsTo, setEarningsTo]   = useState("");
   const [settings, setSettings]     = useState<PracticeSettings>(DEFAULT_SETTINGS);
   const [templates, setTemplates]   = useState<AvailabilityTemplate[]>([]);
   const [exceptions, setExceptions] = useState<AvailabilityException[]>([]);
@@ -197,23 +200,66 @@ export default function AdminPage() {
   );
 
   const now = new Date();
-  const nonArchived = bookings.filter(b => !(b as Booking & { archived?: boolean }).archived);
-  const stats = {
-    confirmed: nonArchived.filter(b=>b.status==="paid").length,
-    pending:   nonArchived.filter(b=>b.status==="held").length,
-    earnings:  nonArchived.filter(b=>b.status==="paid").reduce((a,b)=>a+b.amountNGN,0),
-  };
+  const startOfToday = new Date(now); startOfToday.setHours(0,0,0,0);
+  const startOfWeek  = new Date(startOfToday); startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay());
+
+  const nonArchived = bookings.filter(b => !b.archived);
+  // All bookings ever (including archived) for earnings — never reduce on archive
+  const allPaid = bookings.filter(b => b.status === "paid");
+
+  const upcoming = nonArchived.filter(b => b.status === "paid" && b.slotStart.toDate() >= startOfToday);
+  const upcomingToday = upcoming.filter(b => b.slotStart.toDate() >= startOfToday && b.slotStart.toDate() < new Date(startOfToday.getTime() + 86400000));
+  const upcomingThisWeek = upcoming.filter(b => b.slotStart.toDate() >= startOfWeek);
+  const completedCount = bookings.filter(b => b.archived && b.status === "paid").length;
+
+  // Earnings from ALL paid bookings — never reduced by archiving
+  const totalEarnings = allPaid.reduce((a, b) => a + b.amountNGN, 0);
+
+  // Earnings chart data
+  const now2 = new Date();
+  const earningsChartData = (() => {
+    const labels: string[] = [];
+    const values: number[] = [];
+    if (earningsFilter === "week") {
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now2); d.setDate(d.getDate() - i); d.setHours(0,0,0,0);
+        const next = new Date(d); next.setDate(d.getDate() + 1);
+        labels.push(DOW[d.getDay()]);
+        values.push(allPaid.filter(b => {
+          const ms = b.slotStart.toMillis();
+          return ms >= d.getTime() && ms < next.getTime();
+        }).reduce((a, b) => a + b.amountNGN, 0));
+      }
+    } else {
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
+        const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        labels.push(MON[d.getMonth()]);
+        values.push(allPaid.filter(b => {
+          const ms = b.slotStart.toMillis();
+          return ms >= d.getTime() && ms < next.getTime();
+        }).reduce((a, b) => a + b.amountNGN, 0));
+      }
+    }
+    // Apply custom date range if set
+    if (earningsFrom && earningsTo) {
+      const from = new Date(earningsFrom).getTime();
+      const to = new Date(earningsTo).getTime() + 86400000;
+      const custom = allPaid.filter(b => { const ms = b.slotStart.toMillis(); return ms >= from && ms < to; });
+      return { labels: ["Custom range"], values: [custom.reduce((a,b)=>a+b.amountNGN,0)], max: custom.reduce((a,b)=>a+b.amountNGN,0)||1 };
+    }
+    return { labels, values, max: Math.max(...values, 1) };
+  })();
 
   const filteredBookings = nonArchived
     .filter(b => {
       const bDate = b.slotStart.toDate();
-      if (bookFilter === "upcoming") return b.status === "paid" && bDate >= now;
-      if (bookFilter === "past")     return bDate < now;
-      if (bookFilter === "pending")  return b.status === "held";
+      if (bookFilter === "upcoming") return b.status === "paid" && bDate >= startOfToday;
+      if (bookFilter === "past")     return bDate < startOfToday || b.archived;
       return true;
     })
     .sort((a,b) => {
-      if (bookFilter === "past") return b.slotStart.toMillis() - a.slotStart.toMillis(); // newest first for past
+      if (bookFilter === "past") return b.slotStart.toMillis() - a.slotStart.toMillis();
       return a.slotStart.toMillis() - b.slotStart.toMillis();
     });
 
@@ -230,19 +276,31 @@ export default function AdminPage() {
 
 
 
-        {/* Stats — 3 cards: Confirmed, Earnings, Waiting Room */}
+        {/* Stats grid — Upcoming full width, then Completed + Waiting */}
         <div className="dash-stats-grid">
-          {[
-            {val:stats.confirmed,     label:"Confirmed",    color:"var(--teal)",  icon:"✅"},
-            {val:ngn(stats.earnings), label:"Earnings",     color:"var(--navy)",  icon:"💰"},
-            {val:waitingRoom.length,  label:"Waiting Room", color:"var(--sky)",   icon:"🚪"},
-          ].map(s=>(
-            <div key={s.label} className="stat-card">
-              <div className="stat-icon">{s.icon}</div>
-              <div className="stat-val" style={{color:s.color}}>{s.val}</div>
-              <div className="stat-lbl">{s.label}</div>
+          {/* Upcoming — full width row */}
+          <div className="stat-card stat-card-wide">
+            <div className="stat-icon">📅</div>
+            <div>
+              <div className="stat-val" style={{color:"var(--teal)"}}>{upcoming.length}</div>
+              <div className="stat-lbl">Upcoming Sessions</div>
+              <div className="stat-summary">
+                {upcomingToday.length} booking{upcomingToday.length!==1?"s":""} today &nbsp;·&nbsp; {upcomingThisWeek.length} this week
+              </div>
             </div>
-          ))}
+          </div>
+          {/* Completed */}
+          <div className="stat-card">
+            <div className="stat-icon">✅</div>
+            <div className="stat-val" style={{color:"var(--navy)"}}>{completedCount}</div>
+            <div className="stat-lbl">Completed</div>
+          </div>
+          {/* Waiting Room */}
+          <div className="stat-card" style={{cursor:"pointer"}} onClick={()=>{setTab("bookings");setWaitingRoomOpen(true);}}>
+            <div className="stat-icon">🚪</div>
+            <div className="stat-val" style={{color:"var(--sky)"}}>{waitingRoom.length}</div>
+            <div className="stat-lbl">In Waiting Room</div>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -416,9 +474,9 @@ export default function AdminPage() {
                   {waitingRoom.length > 0 && <div className="wr-pulse-dot" />}
                   <span style={{fontWeight:700,fontSize:14}}>🚪 Waiting Room</span>
                   {waitingRoom.length > 0 ? (
-                    <span className="wr-count">{waitingRoom.length} patient{waitingRoom.length!==1?"s":""}</span>
+                    <span className="wr-count">{waitingRoom.length} client{waitingRoom.length!==1?"s":""} waiting</span>
                   ) : (
-                    <span style={{fontSize:12,color:"var(--muted)"}}>Empty</span>
+                    <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
                   )}
                 </div>
                 <span style={{fontSize:13,color:"var(--muted-2)",transform:waitingRoomOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
@@ -460,7 +518,7 @@ export default function AdminPage() {
               <div className="card-header" style={{marginBottom:16}}>
                 <div>
                   <h3>📋 Bookings</h3>
-                  <p className="card-sub">{stats.confirmed} confirmed · click a row to expand</p>
+                  <p className="card-sub">{upcoming.length} upcoming · click a row to expand</p>
                 </div>
                 <div className="filter-pills">
                   {([
@@ -498,33 +556,83 @@ export default function AdminPage() {
 
         {/* ══ SETTINGS ══ */}
         {tab==="settings" && (
-          <div className="card">
-            <div className="card-header" style={{marginBottom:20}}>
-              <div>
-                <h3>⚙️ Practice Settings</h3>
-                <p className="card-sub">Configure pricing, session length, and booking window.</p>
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+            <div className="card">
+              <div className="card-header" style={{marginBottom:20}}>
+                <div>
+                  <h3>⚙️ Practice Settings</h3>
+                  <p className="card-sub">Configure pricing, session length, and booking window.</p>
+                </div>
+              </div>
+              <div className="settings-grid">
+                {[
+                  {key:"practitionerName",label:"Practitioner Name",type:"text",hint:"Displayed to clients"},
+                  {key:"priceNGN",label:"Session Price (₦)",type:"number",hint:"Amount per session"},
+                  {key:"sessionLengthMin",label:"Session Length (min)",type:"number",hint:"Duration of each consultation"},
+                  {key:"bufferMin",label:"Buffer Between Sessions (min)",type:"number",hint:"Gap between back-to-back bookings"},
+                  {key:"bookingWindowDays",label:"Booking Window (days)",type:"number",hint:"How far ahead clients can book"},
+                  {key:"rescheduleFeeNGN",label:"Reschedule Fee (₦)",type:"number",hint:"One-time fee clients pay to reschedule"},
+                ].map(({key,label,type,hint})=>(
+                  <div key={key} className="settings-field">
+                    <label>{label}</label>
+                    <input type={type} value={(settings as unknown as Record<string,unknown>)[key] as string|number}
+                      onChange={e=>setSettings({...settings,[key]:type==="number"?+e.target.value:e.target.value})}/>
+                    <span className="field-hint">{hint}</span>
+                  </div>
+                ))}
+              </div>
+              <button className="btn btn-primary" style={{marginTop:14}} disabled={saving}
+                onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
+                {saving?"Saving…":"💾 Save Settings"}
+              </button>
+            </div>
+
+            {/* ── Earnings Chart ── */}
+            <div className="card">
+              <div className="card-header" style={{marginBottom:16}}>
+                <div>
+                  <h3>💰 Earnings</h3>
+                  <p className="card-sub">Total: {ngn(totalEarnings)} across all completed sessions</p>
+                </div>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <button className={"filter-pill"+(earningsFilter==="week"?" active":"")} onClick={()=>{setEarningsFilter("week");setEarningsFrom("");setEarningsTo("");}}>This week</button>
+                  <button className={"filter-pill"+(earningsFilter==="month"?" active":"")} onClick={()=>{setEarningsFilter("month");setEarningsFrom("");setEarningsTo("");}}>By month</button>
+                </div>
+              </div>
+              {/* Date range picker */}
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+                <label style={{fontSize:12,color:"var(--muted)",fontWeight:600}}>Custom range:</label>
+                <input type="date" value={earningsFrom} onChange={e=>setEarningsFrom(e.target.value)} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:"1px solid var(--line)"}} />
+                <span style={{fontSize:12,color:"var(--muted)"}}>to</span>
+                <input type="date" value={earningsTo} onChange={e=>setEarningsTo(e.target.value)} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:"1px solid var(--line)"}} />
+                {(earningsFrom||earningsTo)&&<button className="btn btn-ghost btn-sm" onClick={()=>{setEarningsFrom("");setEarningsTo("");}}>Clear</button>}
+              </div>
+              {/* Bar chart */}
+              <div style={{display:"flex",alignItems:"flex-end",gap:6,height:140,padding:"0 4px"}}>
+                {earningsChartData.labels.map((lbl,i)=>{
+                  const val = earningsChartData.values[i]??0;
+                  const pct = earningsChartData.max > 0 ? (val/earningsChartData.max)*100 : 0;
+                  return (
+                    <div key={lbl+i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:0}}>
+                      <div style={{fontSize:9,color:"var(--muted)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%",textAlign:"center"}}>
+                        {val>0?ngn(val):""}
+                      </div>
+                      <div style={{width:"100%",display:"flex",alignItems:"flex-end",height:90}}>
+                        <div style={{
+                          width:"100%",
+                          height:`${Math.max(pct,val>0?4:1)}%`,
+                          background:val>0?"linear-gradient(180deg,var(--teal),var(--sky))":"var(--line)",
+                          borderRadius:"4px 4px 0 0",
+                          transition:"height .3s",
+                          minHeight:val>0?4:1,
+                        }} title={ngn(val)} />
+                      </div>
+                      <div style={{fontSize:9,color:"var(--muted)",fontWeight:600,whiteSpace:"nowrap"}}>{lbl}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            <div className="settings-grid">
-              {[
-                {key:"practitionerName",label:"Practitioner Name",type:"text",hint:"Displayed to clients"},
-                {key:"priceNGN",label:"Session Price (₦)",type:"number",hint:"Amount per session"},
-                {key:"sessionLengthMin",label:"Session Length (min)",type:"number",hint:"Duration of each consultation"},
-                {key:"bufferMin",label:"Buffer Between Sessions (min)",type:"number",hint:"Gap between back-to-back bookings"},
-                {key:"bookingWindowDays",label:"Booking Window (days)",type:"number",hint:"How far ahead clients can book"},
-              ].map(({key,label,type,hint})=>(
-                <div key={key} className="settings-field">
-                  <label>{label}</label>
-                  <input type={type} value={(settings as unknown as Record<string,unknown>)[key] as string|number}
-                    onChange={e=>setSettings({...settings,[key]:type==="number"?+e.target.value:e.target.value})}/>
-                  <span className="field-hint">{hint}</span>
-                </div>
-              ))}
-            </div>
-            <button className="btn btn-primary" style={{marginTop:14}} disabled={saving}
-              onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
-              {saving?"Saving…":"💾 Save Settings"}
-            </button>
           </div>
         )}
         <div style={{height:48}}/>

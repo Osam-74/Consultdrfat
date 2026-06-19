@@ -2166,3 +2166,99 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   opacity: 0.38;
   cursor: not-allowed;
 }
+
+/* ═══════════════════════════════════════════════════════
+   NEW UI — June 2026 additions
+═══════════════════════════════════════════════════════ */
+
+/* Stats grid — Upcoming full width, then 2 equal columns */
+.dash-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 20px 0;
+}
+.stat-card-wide {
+  grid-column: 1 / -1; /* Full width */
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.stat-card-wide .stat-icon { font-size: 28px; }
+.stat-summary {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+  font-weight: 500;
+}
+@media (max-width: 480px) {
+  .dash-stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card-wide { gap: 12px; }
+}
+
+/* Dock icon-only button */
+.dbtn.icon-only {
+  min-width: 36px;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* File toggle dock row — icon + toggle inline */
+.toggle.icon-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.07);
+  user-select: none;
+  transition: background .15s;
+  border: 1px solid rgba(255,255,255,.12);
+  min-width: 0;
+}
+.toggle.icon-toggle:hover { background: rgba(255,255,255,.13); }
+.toggle.icon-toggle.on { background: rgba(74,222,128,.12); border-color: rgba(74,222,128,.3); }
+
+/* Dock — next client label */
+.dock-next-client {
+  font-size: 11px;
+  color: rgba(255,255,255,.55);
+  background: rgba(255,255,255,.07);
+  border-radius: 8px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255,255,255,.1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Session room — pulse animation */
+@keyframes pulse {
+  0%   { transform: scale(1);   opacity: .6; }
+  50%  { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(1);   opacity: .6; }
+}
+
+/* Floating bubble on home page */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Profile dropdown animations */
+.profile-dropdown-enter {
+  animation: fadeSlideUp .18s ease forwards;
+}
+
+/* Recent row cancel / reschedule action buttons on mobile */
+@media (max-width: 600px) {
+  .recent-row-right { flex-wrap: wrap; gap: 4px; }
+}

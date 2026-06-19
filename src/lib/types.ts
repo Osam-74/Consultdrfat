@@ -5,11 +5,12 @@ export type Role = "practitioner" | "client";
 export interface PracticeSettings {
   practitionerName: string;
   currency: "NGN";
-  priceNGN: number; // price per standard session, in Naira
-  sessionLengthMin: number; // default 15
-  bufferMin: number; // gap between sessions
-  bookingWindowDays: number; // hard limit, default 14
-  timezone: string; // e.g. "Africa/Lagos"
+  priceNGN: number;
+  sessionLengthMin: number;
+  bufferMin: number;
+  bookingWindowDays: number;
+  timezone: string;
+  rescheduleFeeNGN: number; // fee to reschedule a booking, default 1000
 }
 
 export const DEFAULT_SETTINGS: PracticeSettings = {
@@ -20,22 +21,22 @@ export const DEFAULT_SETTINGS: PracticeSettings = {
   bufferMin: 10,
   bookingWindowDays: 14,
   timezone: "Africa/Lagos",
+  rescheduleFeeNGN: 1000,
 };
 
-// Extra-time blocks offered mid-session, priced pro-rata (₦ per minute ≈ price/length).
 export const EXTENSION_MINUTES = [15, 30] as const;
 
 export interface AvailabilityTemplate {
   id: string;
-  weekday: number; // 0 = Sunday … 6 = Saturday
-  start: string; // "09:00"
-  end: string; // "13:00"
+  weekday: number;
+  start: string;
+  end: string;
   active: boolean;
 }
 
 export interface AvailabilityException {
   id: string;
-  date: string; // "2026-06-20"
+  date: string;
   type: "block" | "extra";
   start?: string;
   end?: string;
@@ -53,11 +54,14 @@ export interface Booking {
   status: BookingStatus;
   topic?: string;
   amountNGN: number;
-  discountCode?: string;       // code string applied at booking
-  discountCodeId?: string;     // document id in discountCodes
-  discountPercent?: number;    // % applied
+  discountCode?: string;
+  discountCodeId?: string;
+  discountPercent?: number;
   paystackRef?: string;
   createdAt: Timestamp;
+  archived?: boolean;
+  rescheduledOnce?: boolean;   // true if client has already rescheduled once
+  completedAt?: Timestamp;     // set when session completes
 }
 
 export interface Offer {
@@ -69,12 +73,14 @@ export interface Offer {
 
 export interface SessionDoc {
   status: "idle" | "live" | "complete";
-  endAt: Timestamp | null; // authoritative end time
+  endAt: Timestamp | null;
   durationMin: number;
   offer: Offer | null;
-  nextClientAt: string | null; // human label of next booking, for the queue guard
+  nextClientAt: string | null;
   updatedAt: Timestamp;
-  attachmentsEnabled?: boolean; // practitioner can toggle client file uploads
+  attachmentsEnabled?: boolean;
+  // Presence: uid → last-seen epoch ms (written by each client every 15s)
+  presence?: Record<string, number>;
 }
 
 export interface Message {
@@ -82,9 +88,8 @@ export interface Message {
   from: Role | "system";
   text: string;
   t: number;
-  // File attachment — URL points to Cloudflare R2 public CDN
-  fileUrl?: string;    // public CDN URL (R2)
-  fileType?: string;   // MIME type e.g. "image/png", "application/pdf"
-  fileName?: string;   // original filename
-  fileSize?: number;   // size in bytes
+  fileUrl?: string;
+  fileType?: string;
+  fileName?: string;
+  fileSize?: number;
 }

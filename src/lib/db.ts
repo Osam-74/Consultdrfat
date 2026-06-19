@@ -143,6 +143,13 @@ export async function startSession(bookingId: string, durationMin: number) {
 }
 export async function completeSession(bookingId: string) {
   await updateDoc(sessionRef(bookingId), { status: "complete", updatedAt: serverTimestamp() });
+  // Auto-archive the booking when session completes.
+  // PRODUCTION NOTE: In production, clients should not be able to join the waiting room
+  // until 15 min before their slot. For now (testing), early joins are allowed.
+  await updateDoc(doc(db, "bookings", bookingId), {
+    archived: true,
+    completedAt: serverTimestamp(),
+  });
 }
 export async function setNextClient(bookingId: string, label: string | null) {
   await updateDoc(sessionRef(bookingId), { nextClientAt: label, updatedAt: serverTimestamp() });
@@ -587,6 +594,36 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
 /** Archive a booking (soft-delete from active list) */
 export async function archiveBooking(id: string) {
   await updateDoc(doc(db, "bookings", id), { archived: true });
+}
+
+/**
+ * Reschedule a booking to a new slot.
+ * Only allowed once per booking (rescheduledOnce flag).
+ * Requires a reschedule fee payment — caller handles Paystack flow.
+ */
+export async function rescheduleBooking(
+  bookingId: string,
+  newSlotStart: Timestamp,
+  newSlotEnd: Timestamp,
+): Promise<void> {
+  await updateDoc(doc(db, "bookings", bookingId), {
+    slotStart: newSlotStart,
+    slotEnd: newSlotEnd,
+    rescheduledOnce: true,
+  });
+}
+
+/**
+ * Write a presence heartbeat for a user inside a session.
+ * Call every 15s while the session is open.
+ */
+export async function pingPresence(bookingId: string, uid: string): Promise<void> {
+  try {
+    await updateDoc(sessionRef(bookingId), {
+      [`presence.${uid}`]: Date.now(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch { /* non-fatal */ }
 }
 
 /** Watch non-archived bookings for the practitioner */

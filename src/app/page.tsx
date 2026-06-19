@@ -1,12 +1,56 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@/lib/auth";
+import { getLiveSession, getClientBookings } from "@/lib/db";
 
 export default function Home() {
+  const { user, signOut } = useAuth();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [showReturnBubble, setShowReturnBubble] = useState(false);
+  const [bubbleExpanded, setBubbleExpanded] = useState(true);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Check for active live session (client only)
+  useEffect(() => {
+    if (!user) return;
+    getClientBookings(user.uid).then(async (bookings) => {
+      for (const b of bookings) {
+        const sess = await getLiveSession(b.id).catch(() => null);
+        if (sess?.status === "live") {
+          setActiveSessionId(b.id);
+          setShowReturnBubble(true);
+          break;
+        }
+      }
+    }).catch(() => {});
+  }, [user]);
+
+  // Auto-collapse "Return to session" text after 3.5s
+  useEffect(() => {
+    if (!showReturnBubble) return;
+    const t = setTimeout(() => setBubbleExpanded(false), 3500);
+    return () => clearTimeout(t);
+  }, [showReturnBubble]);
+
   return (
     <>
       {/* ── HERO ── */}
       <section className="hero">
         <div className="wrap">
-          {/* Nav — practitioner link is intentionally removed from public view */}
           <nav className="nav">
             <Link href="/" className="brand">
               <div className="brand-icon">🩺</div>
@@ -15,11 +59,59 @@ export default function Home() {
                 <small style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.55)", letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 2, display: "block" }}>Medical Consultations</small>
               </div>
             </Link>
-            <div style={{ display: "flex", gap: 10 }}>
-              <Link href="/book/" className="btn btn-primary btn-sm">Book Now</Link>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {user ? (
+                <div ref={profileRef} style={{ position: "relative" }}>
+                  <button
+                    onClick={() => setProfileOpen(v => !v)}
+                    style={{
+                      width: 36, height: 36, borderRadius: "50%",
+                      background: "rgba(255,255,255,.15)", border: "2px solid rgba(255,255,255,.3)",
+                      color: "#fff", fontSize: 16, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                    title={user.displayName ?? user.email ?? "Account"}
+                  >
+                    {user.displayName?.[0]?.toUpperCase() ?? "👤"}
+                  </button>
+                  {profileOpen && (
+                    <div style={{
+                      position: "absolute", right: 0, top: "calc(100% + 8px)",
+                      background: "#fff", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,.18)",
+                      minWidth: 180, zIndex: 200, overflow: "hidden",
+                    }}>
+                      <div style={{ padding: "12px 16px", borderBottom: "1px solid #f0f0f0" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)" }}>{user.displayName ?? "Account"}</div>
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{user.email}</div>
+                      </div>
+                      <Link href="/book/" onClick={() => setProfileOpen(false)}
+                        style={{ display: "block", padding: "11px 16px", fontSize: 13, color: "var(--navy)", textDecoration: "none", fontWeight: 600 }}
+                        onMouseOver={e => (e.currentTarget.style.background="#f8fafc")}
+                        onMouseOut={e => (e.currentTarget.style.background="transparent")}
+                      >
+                        📅 Book a Session
+                      </Link>
+                      <button
+                        onClick={() => { setProfileOpen(false); signOut(); }}
+                        style={{
+                          width: "100%", textAlign: "left", padding: "11px 16px",
+                          fontSize: 13, color: "#e53e3e", fontWeight: 600,
+                          background: "none", border: "none", cursor: "pointer",
+                          borderTop: "1px solid #f0f0f0",
+                        }}
+                        onMouseOver={e => (e.currentTarget.style.background="#fff5f5")}
+                        onMouseOut={e => (e.currentTarget.style.background="transparent")}
+                      >
+                        🚪 Logout
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Link href="/book/" className="btn btn-primary btn-sm">Book Now</Link>
+              )}
             </div>
           </nav>
-
           <div className="hero-grid">
             <div className="hero-left">
               <div className="hero-badge">
@@ -345,6 +437,38 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* ── Floating Return to Session bubble (client with active session) ── */}
+      {showReturnBubble && activeSessionId && (
+        <Link
+          href={`/session/?id=${activeSessionId}&role=client`}
+          onClick={() => setBubbleExpanded(true)}
+          style={{
+            position: "fixed", bottom: 24, right: 24, zIndex: 999,
+            display: "flex", alignItems: "center", gap: 8,
+            background: "linear-gradient(135deg, var(--teal), var(--sky))",
+            borderRadius: 40, boxShadow: "0 4px 20px rgba(0,180,180,.35)",
+            padding: bubbleExpanded ? "10px 18px 10px 12px" : "10px 12px",
+            textDecoration: "none", transition: "padding .3s ease, width .3s ease",
+            cursor: "pointer",
+          }}
+        >
+          {/* Pulsing live dot */}
+          <span style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20 }}>
+            <span style={{ position: "absolute", width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,.25)", animation: "pulse 1.5s infinite" }} />
+            <span style={{ fontSize: 16 }}>🎧</span>
+          </span>
+          {/* Animated text label */}
+          <span style={{
+            color: "#fff", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap",
+            maxWidth: bubbleExpanded ? 160 : 0, overflow: "hidden",
+            transition: "max-width .4s ease, opacity .3s ease",
+            opacity: bubbleExpanded ? 1 : 0,
+          }}>
+            Return to session
+          </span>
+        </Link>
+      )}
     </>
   );
 }

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
   getSettings, getTemplates, getExceptions, getActiveBookings, createBooking, markBookingPaid,
-  getClientBookings, getLiveSession, cancelBooking,
+  getClientBookings, getLiveSession, cancelBooking, rescheduleBooking,
 } from "@/lib/db";
 import { validateDiscountCode, redeemDiscountCode } from "@/lib/db";
 import { generateSlots, groupByDay, Slot } from "@/lib/slots";
@@ -55,6 +55,12 @@ export default function BookPage() {
   // Recent sessions
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
+
+  // Reschedule state
+  const [reschedulingId, setReschedulingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [rescheduleSlot, setRescheduleSlot] = useState<Slot | null>(null);
+  const [reschedulePaying, setReschedulePaying] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -294,36 +300,144 @@ export default function BookPage() {
                       const slotMs = bk.slotStart.toMillis();
                       const nowMs = Date.now();
                       const isResumable = !isLive && !isUpcoming && (nowMs - slotMs) < 20 * 60 * 1000;
+                      const canReschedule = isUpcoming && !bk.rescheduledOnce && bk.status === "paid";
+                      const isReschedulingThis = reschedulingId === bk.id;
+                      const isCancellingThis = cancellingId === bk.id;
 
                       return (
-                        <div key={bk.id} className={`recent-row ${isLive ? "recent-live" : isUpcoming ? "recent-upcoming" : "recent-done"}`}>
-                          <div className="recent-row-left">
-                            {isLive && <span className="recent-live-dot" />}
-                            <div className="recent-row-info">
-                              <span className="recent-row-date">{fmtSlot(start)}</span>
-                              {bk.topic && <span className="recent-row-topic">{bk.topic}</span>}
+                        <div key={bk.id} style={{display:"flex",flexDirection:"column",gap:0}}>
+                          <div className={`recent-row ${isLive ? "recent-live" : isUpcoming ? "recent-upcoming" : "recent-done"}`}>
+                            <div className="recent-row-left">
+                              {isLive && <span className="recent-live-dot" />}
+                              <div className="recent-row-info">
+                                <span className="recent-row-date">{fmtSlot(start)}</span>
+                                {bk.topic && <span className="recent-row-topic">{bk.topic}</span>}
+                              </div>
+                            </div>
+                            <div className="recent-row-right">
+                              <span className={`recent-badge ${isLive ? "rb-live" : isUpcoming ? "rb-upcoming" : "rb-done"}`}>
+                                {isLive ? "● Live" : isUpcoming ? "Upcoming" : "Completed"}
+                              </span>
+                              {isLive && (
+                                <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-primary">
+                                  Rejoin →
+                                </Link>
+                              )}
+                              {isUpcoming && (
+                                <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost">
+                                  Join Room →
+                                </Link>
+                              )}
+                              {isResumable && !isLive && !isUpcoming && (
+                                <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost" style={{ borderColor: "var(--gold)", color: "var(--gold)" }}>
+                                  Resume →
+                                </Link>
+                              )}
+                              {/* Reschedule — once only */}
+                              {canReschedule && (
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  style={{fontSize:11}}
+                                  onClick={() => setReschedulingId(isReschedulingThis ? null : bk.id)}
+                                >
+                                  🔄 Reschedule
+                                </button>
+                              )}
+                              {/* Cancel */}
+                              {isUpcoming && bk.status === "paid" && (
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  style={{fontSize:11,color:"#e53e3e",borderColor:"#e53e3e"}}
+                                  onClick={() => setCancellingId(isCancellingThis ? null : bk.id)}
+                                >
+                                  ✕ Cancel
+                                </button>
+                              )}
                             </div>
                           </div>
-                          <div className="recent-row-right">
-                            <span className={`recent-badge ${isLive ? "rb-live" : isUpcoming ? "rb-upcoming" : "rb-done"}`}>
-                              {isLive ? "● Live" : isUpcoming ? "Upcoming" : "Completed"}
-                            </span>
-                            {isLive && (
-                              <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-primary">
-                                Rejoin →
-                              </Link>
-                            )}
-                            {isUpcoming && (
-                              <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost">
-                                Join Room →
-                              </Link>
-                            )}
-                            {isResumable && !isLive && !isUpcoming && (
-                              <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-ghost" style={{ borderColor: "var(--gold)", color: "var(--gold)" }}>
-                                Resume →
-                              </Link>
-                            )}
-                          </div>
+
+                          {/* Cancel confirmation inline */}
+                          {isCancellingThis && (
+                            <div style={{background:"#fff5f5",border:"1px solid #fed7d7",borderRadius:8,padding:"10px 14px",margin:"4px 0 8px",fontSize:13}}>
+                              <strong style={{color:"#c53030"}}>No refund on cancellation.</strong>
+                              <span style={{color:"#744210",marginLeft:6}}>Once cancelled, your slot is released and payment is forfeited.</span>
+                              <div style={{display:"flex",gap:8,marginTop:8}}>
+                                <button className="btn btn-sm" style={{background:"#e53e3e",color:"#fff",border:"none"}}
+                                  onClick={async () => {
+                                    await cancelBooking(bk.id);
+                                    setCancellingId(null);
+                                    setRecentItems(prev => prev.filter(r => r.booking.id !== bk.id));
+                                  }}>
+                                  Yes, cancel booking
+                                </button>
+                                <button className="btn btn-sm btn-ghost" onClick={() => setCancellingId(null)}>Keep it</button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Reschedule slot picker inline */}
+                          {isReschedulingThis && (
+                            <div style={{background:"#f0fdfd",border:"1px solid var(--teal)",borderRadius:8,padding:"12px 14px",margin:"4px 0 8px"}}>
+                              <div style={{fontSize:13,fontWeight:700,color:"var(--navy)",marginBottom:8}}>
+                                Choose a new slot — reschedule fee: {ngn(settings.rescheduleFeeNGN ?? 1000)}
+                              </div>
+                              <div style={{fontSize:12,color:"var(--muted)",marginBottom:10}}>
+                                You have already used {bk.rescheduledOnce ? "your 1 reschedule" : "0 reschedules"}. Only 1 reschedule allowed per booking.
+                              </div>
+                              {/* Show available slots */}
+                              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                                {slots.slice(0,12).map(sl => (
+                                  <button key={sl.start.getTime()}
+                                    className={"btn btn-sm" + (rescheduleSlot?.start.getTime()===sl.start.getTime()?" btn-primary":" btn-ghost")}
+                                    style={{fontSize:11}}
+                                    onClick={() => setRescheduleSlot(sl)}
+                                  >
+                                    {fmtSlot(sl.start)}
+                                  </button>
+                                ))}
+                              </div>
+                              {rescheduleSlot && (
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  disabled={reschedulePaying}
+                                  onClick={() => {
+                                    if (!user) return;
+                                    setReschedulePaying(true);
+                                    payNGN({
+                                      email: user.email ?? "",
+                                      amountNGN: settings.rescheduleFeeNGN ?? 1000,
+                                      metadata: { bookingId: bk.id, kind: "reschedule" },
+                                      onSuccess: async () => {
+                                        const newEnd = new Date(rescheduleSlot.start.getTime() + settings.sessionLengthMin * 60000);
+                                        await rescheduleBooking(
+                                          bk.id,
+                                          Timestamp.fromDate(rescheduleSlot.start),
+                                          Timestamp.fromDate(newEnd),
+                                        );
+                                        setReschedulingId(null);
+                                        setRescheduleSlot(null);
+                                        setReschedulePaying(false);
+                                        // Refresh recent items
+                                        const updated = await getClientBookings(user.uid);
+                                        const items: RecentItem[] = await Promise.all(updated.slice(0,8).map(async b2 => {
+                                          let sess2 = null; let st: SessionStatus = "upcoming";
+                                          try { sess2 = await getLiveSession(b2.id); } catch {}
+                                          if (sess2?.status === "live") st = "live";
+                                          else if (b2.slotStart.toMillis() < Date.now()) st = "completed";
+                                          return { booking: b2, sessionStatus: st, session: sess2 };
+                                        }));
+                                        setRecentItems(items);
+                                      },
+                                      onCancel: () => setReschedulePaying(false),
+                                    });
+                                  }}
+                                >
+                                  {reschedulePaying ? "Processing…" : `Pay ${ngn(settings.rescheduleFeeNGN ?? 1000)} & Reschedule`}
+                                </button>
+                              )}
+                              <button className="btn btn-sm btn-ghost" style={{marginLeft:6}} onClick={() => { setReschedulingId(null); setRescheduleSlot(null); }}>Cancel</button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
