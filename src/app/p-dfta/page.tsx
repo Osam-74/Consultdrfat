@@ -281,6 +281,31 @@ export default function AdminPage() {
   const recurringWindows = (ds: string) => windowsByDate.get(ds)??[];
   const hasWindows = (ds: string) => { if(isBlocked(ds)) return false; return recurringWindows(ds).length>0||extraWindows(ds).length>0; };
 
+  // ── Ping sound ──
+  const playPingSound = () => {
+    try {
+      // Generate a simple notification tone using Web Audio API
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+      oscillator.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.15); // E6
+      gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.5);
+    } catch { /* non-fatal */ }
+  };
+
+  // Auto-dismiss ping notification after 15 seconds
+  useEffect(() => {
+    if (!pingNotification) return;
+    const timer = setTimeout(() => setPingNotification(null), 15_000);
+    return () => clearTimeout(timer);
+  }, [pingNotification]);
+
   if (loading) return <div className="center" style={{minHeight:"100vh"}}><div style={{fontSize:40}}>🩺</div><p style={{color:"var(--muted)"}}>Loading…</p></div>;
   if (!user) return <SignInForm title="Practitioner Sign In" subtitle="Sign in to access your practitioner dashboard." />;
   if (role !== "practitioner") return (
@@ -401,30 +426,6 @@ export default function AdminPage() {
   const selExtra     = selDate ? extraWindows(selDate) : [];
   const selBlocked   = selDate ? isBlocked(selDate) : false;
 
-  // ── Ping sound ──
-  const playPingSound = () => {
-    try {
-      // Generate a simple notification tone using Web Audio API
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-      oscillator.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.15); // E6
-      gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-      oscillator.start(audioCtx.currentTime);
-      oscillator.stop(audioCtx.currentTime + 0.5);
-    } catch { /* non-fatal */ }
-  };
-
-  // Auto-dismiss ping notification after 15 seconds
-  useEffect(() => {
-    if (!pingNotification) return;
-    const timer = setTimeout(() => setPingNotification(null), 15_000);
-    return () => clearTimeout(timer);
-  }, [pingNotification]);
 
   return (
     <div style={{minHeight:"100vh",background:"var(--paper)"}}>

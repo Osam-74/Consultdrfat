@@ -118,8 +118,9 @@ export function watchBookings(cb: (rows: Booking[]) => void) {
     orderBy("slotStart", "asc"),
     limit(100)
   );
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+  return onSnapshot(q, 
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))),
+    (err) => console.error("[watchBookings] onSnapshot error:", err.message)
   );
 }
 
