@@ -7,9 +7,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getClientBookings } from "@/lib/db";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { watchBookings } from "@/lib/db";
 
 export default function GlobalShell({ children }: { children: React.ReactNode }) {
   const { user, role } = useAuth();
@@ -21,79 +19,28 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
   // Hide bubble on session page — user is already there
   const onSessionPage = pathname?.startsWith("/session");
 
-  // Find the client's active booking, then watch the session doc in real-time
+  // Real-time listener on bookings — mirrors the "Rejoin" button logic from the
+  // session list. Shows the floating headphone ONLY when a booking's sessionStatus
+  // is "live" (practitioner has started the session and it hasn't been completed).
   useEffect(() => {
     if (!user || role !== "client") {
       setActiveSessionId(null);
       return;
     }
 
-    let cancelled = false;
+    const unsub = watchBookings((rows) => {
+      // Find this client's paid, non-archived booking that is currently live
+      const liveBooking = rows.find(
+        (b) =>
+          b.status === "paid" &&
+          !b.archived &&
+          b.clientId === user.uid &&
+          (b as unknown as Record<string, unknown>).sessionStatus === "live"
+      );
+      setActiveSessionId(liveBooking ? liveBooking.id : null);
+    });
 
-    const setup = async () => {
-      try {
-        const bookings = await getClientBookings(user.uid);
-        if (cancelled) return;
-
-        // Unsubscribe any previous session watcher
-  
-        // Find the most recent paid non-archived booking
-        const active = bookings.find((b) => b.status === "paid" && !b.archived);
-        if (!active) { setActiveSessionId(null); return; }
-
-        // The floating headphone should ONLY appear when the practitioner has
-        // started the session and it's currently live. Not on fresh bookings,
-        // not on upcoming sessions, not on completed sessions.
-        const cachedStatus = (active as unknown as Record<string, unknown>).sessionStatus as string | undefined;
-
-        if (cachedStatus === "live") {
-          setActiveSessionId(active.id);
-          return;
-        }
-
-        // If cachedStatus is explicitly "complete", never show the bubble.
-        if (cachedStatus === "complete") {
-          setActiveSessionId(null);
-          return;
-        }
-
-        // If no cached status, do a ONE-TIME getDoc to check the session doc.
-        // Only show the bubble if the session doc exists AND status === "live".
-        // A fresh booking (no session doc) should NOT show the headphone.
-        if (!cachedStatus) {
-          try {
-            const sessSnap = await getDoc(doc(db, "sessions", active.id));
-            if (sessSnap.exists()) {
-              const sessData = sessSnap.data() as { status?: string };
-              if (sessData.status === "live") {
-                setActiveSessionId(active.id);
-              } else {
-                setActiveSessionId(null);
-              }
-            } else {
-              // No session doc = practitioner hasn't started the session yet
-              setActiveSessionId(null);
-            }
-          } catch {
-            setActiveSessionId(null);
-          }
-        } else {
-          // cachedStatus is "idle", "none", or any other non-live value
-          setActiveSessionId(null);
-        }
-      } catch {
-        setActiveSessionId(null);
-      }
-    };
-
-    setup();
-    // Poll every 5 minutes — enough for the "Return to session" bubble UX
-    const iv = setInterval(setup, 5 * 60_000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
+    return unsub;
   }, [user, role]);
 
   // Auto-collapse label after 4s when bubble appears

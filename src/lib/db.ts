@@ -108,20 +108,18 @@ export async function cancelBooking(id: string) {
   await updateDoc(doc(db, "bookings", id), { status: "cancelled" });
 }
 export function watchBookings(cb: (rows: Booking[]) => void) {
-  // Query ALL bookings sorted by slotStart (limited to 100).
-  // We filter archived client-side because Firestore `!=` queries exclude
-  // documents that don't have the field at all — which would hide new bookings
-  // that were never archived.
+  // Query ALL bookings sorted by slotStart (limited to 100), including archived.
+  // Components filter archived client-side for display, but the raw data
+  // includes archived bookings for earnings/completed-count calculations.
+  // Previously used Firestore `where("archived", "!=", true)` which excludes
+  // documents that don't have the `archived` field — hiding new bookings.
   const q = query(
     collection(db, "bookings"),
     orderBy("slotStart", "asc"),
     limit(100)
   );
   return onSnapshot(q, (snap) =>
-    cb(snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
-      .filter((b) => !b.archived)
-    )
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
   );
 }
 

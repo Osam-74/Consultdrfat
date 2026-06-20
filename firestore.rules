@@ -68,11 +68,9 @@ service cloud.firestore {
 
     // ── Discount codes ──────────────────────────────────────────────────────────
     match /discountCodes/{id} {
-      allow read:   if isPractitioner()
-        || (signedIn() && resource.data.createdForUid == request.auth.uid);
-      allow create: if isPractitioner();
-      allow update: if isPractitioner()
-        || (signedIn() && resource.data.createdForUid == request.auth.uid);
+      allow read:   if isPractitioner() || signedIn();
+      allow create: if isPractitioner() || signedIn();
+      allow update: if isPractitioner() || signedIn();
       allow delete: if isPractitioner();
     }
 

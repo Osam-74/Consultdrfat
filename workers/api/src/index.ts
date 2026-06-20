@@ -18,8 +18,8 @@
 
 export interface Env {
   PAYSTACK_SECRET_KEY: string;
-  CF_TURN_KEY_ID: string;
-  CF_TURN_API_TOKEN: string;
+  CF_TURN_KEY_ID?: string;
+  CF_TURN_API_TOKEN?: string;
   ALLOW_ORIGIN: string;        // e.g. https://consultdrfat.pages.dev
   FIREBASE_PROJECT_ID: string; // e.g. consultdrfat
   FIREBASE_SA_JSON: string;    // full service-account JSON string
@@ -256,23 +256,54 @@ export default {
 
     // ── Cloudflare TURN/STUN ICE servers ──────────────────────────────────────
     if (url.pathname === "/turn" && req.method === "GET") {
-      const fallback = { iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] };
+      // Always include free OpenRelay TURN servers in the fallback — STUN alone
+      // cannot traverse symmetric NATs (common on mobile/carrier networks).
+      const fallback = {
+        iceServers: [
+          { urls: "stun:stun.cloudflare.com:3478" },
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443?transport=tcp",
+            username: "openrelayproject",
+            credential: "openrelayproject",
+          },
+        ],
+      };
+
       if (!env.CF_TURN_KEY_ID || !env.CF_TURN_API_TOKEN) return json(fallback, env);
 
-      const r = await fetch(
-        `https://rtc.live.cloudflare.com/v1/turn/keys/${env.CF_TURN_KEY_ID}/credentials/generate`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${env.CF_TURN_API_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ ttl: 86400 }),
-        }
-      );
-      const data = (await r.json()) as { iceServers?: unknown };
-      const iceServers = data?.iceServers ? [data.iceServers] : fallback.iceServers;
-      return json({ iceServers }, env);
+      try {
+        const r = await fetch(
+          `https://rtc.live.cloudflare.com/v1/turn/keys/${env.CF_TURN_KEY_ID}/credentials/generate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${env.CF_TURN_API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ttl: 86400 }),
+          }
+        );
+        if (!r.ok) return json(fallback, env);
+        const data = (await r.json()) as { iceServers?: RTCIceServer[] };
+        // Cloudflare returns iceServers as an array — merge with fallback TURN
+        const cfServers = Array.isArray(data?.iceServers) ? data.iceServers : [];
+        const iceServers = [...cfServers, ...fallback.iceServers];
+        return json({ iceServers }, env);
+      } catch {
+        return json(fallback, env);
+      }
     }
 
     // ── File upload → R2 ──────────────────────────────────────────────────────

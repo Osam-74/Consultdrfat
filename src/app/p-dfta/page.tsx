@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
@@ -18,6 +18,8 @@ const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const ngn = (n: number) => new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(n);
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MON_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const fmtDate = (s: string) => { const d=new Date(s+"T00:00:00"); return `${DOW[d.getDay()]}, ${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`; };
 const fmtDT = (d: Date) => `${DOW[d.getDay()]}, ${d.getDate()} ${MON[d.getMonth()]} · ${d.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}`;
 
@@ -116,7 +118,21 @@ export default function AdminPage() {
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, "none"|"idle"|"live"|"complete">>({});
   const [discountCodes, setDiscountCodes]       = useState<DiscountCode[]>([]);
   const [saving, setSaving]         = useState(false);
-  const [bookFilter, setBookFilter] = useState<"upcoming"|"past"|"pending"|"completed">("upcoming");
+  // Horizontal calendar date picker for bookings tab
+  const [calSelectedDate, setCalSelectedDate] = useState<string>(ymd(new Date()));
+  const [calScrollStart, setCalScrollStart] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() - 3);
+    return ymd(d);
+  });
+  const calStripRef = useRef<HTMLDivElement>(null);
+  const calDays = useMemo(() => {
+    const start = new Date(calScrollStart + "T00:00:00");
+    return Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return d;
+    });
+  }, [calScrollStart]);
 
   // Waiting room
   const [waitingRoom, setWaitingRoom] = useState<Booking[]>([]);
@@ -239,9 +255,25 @@ export default function AdminPage() {
   const completedNotArchived = nonArchived.filter(b =>
     b.status === "paid" && (sessionStatuses[b.id] ?? "none") === "complete"
   );
-  const upcomingToday = upcoming.filter(b => b.slotStart.toDate() >= startOfToday && b.slotStart.toDate() < new Date(startOfToday.getTime() + 86400000));
-  const upcomingThisWeek = upcoming.filter(b => b.slotStart.toDate() >= startOfWeek);
-  const completedCount = bookings.filter(b => b.archived && b.status === "paid").length;
+
+  // Bookings today/this week — count ALL paid non-archived bookings in the
+  // time window, regardless of session status (upcoming + completed + in-progress)
+  const endOfToday = new Date(startOfToday.getTime() + 86400000);
+  const bookingsToday = nonArchived.filter(b =>
+    b.status === "paid" &&
+    b.slotStart.toDate() >= startOfToday &&
+    b.slotStart.toDate() < endOfToday
+  ).length;
+  const bookingsThisWeek = nonArchived.filter(b =>
+    b.status === "paid" &&
+    b.slotStart.toDate() >= startOfWeek
+  ).length;
+
+  const upcomingToday = bookingsToday;
+  const upcomingThisWeek = bookingsThisWeek;
+  // Completed count = archived paid bookings + completed-but-not-archived
+  const completedCount = bookings.filter(b => b.archived && b.status === "paid").length
+    + completedNotArchived.length;
 
   // Earnings from ALL paid bookings — never reduced by archiving
   const totalEarnings = allPaid.reduce((a, b) => a + b.amountNGN, 0);
@@ -282,15 +314,6 @@ export default function AdminPage() {
     return { labels, values, max: Math.max(...values, 1) };
   })();
 
-  const filteredBookings = (
-    bookFilter === "upcoming"  ? upcoming :
-    bookFilter === "completed" ? completedNotArchived :
-    nonArchived.filter(b => { const bDate = b.slotStart.toDate(); return bDate < startOfToday || b.archived; })
-  ).slice().sort((a,b) => {
-    if (bookFilter === "past") return b.slotStart.toMillis() - a.slotStart.toMillis();
-    return a.slotStart.toMillis() - b.slotStart.toMillis();
-  });
-
   const cells = calCells(calMonth);
   const monthLabel = `${MON[calMonth.getMonth()]} ${calMonth.getFullYear()}`;
   const selRecurring = selDate ? recurringWindows(selDate) : [];
@@ -313,7 +336,7 @@ export default function AdminPage() {
               <div className="stat-val" style={{color:"#fff",fontSize:36}}>{upcoming.length}</div>
               <div className="stat-lbl" style={{color:"rgba(255,255,255,.75)"}}>Upcoming Sessions</div>
               <div className="stat-summary" style={{color:"rgba(255,255,255,.55)"}}>
-                {upcomingToday.length} booking{upcomingToday.length!==1?"s":""} today &nbsp;·&nbsp; {upcomingThisWeek.length} this week
+                {upcomingToday} booking{upcomingToday!==1?"s":""} today &nbsp;·&nbsp; {upcomingThisWeek} this week
               </div>
             </div>
           </div>
@@ -546,39 +569,137 @@ export default function AdminPage() {
               <div className="card-header" style={{marginBottom:16}}>
                 <div>
                   <h3>📋 Bookings</h3>
-                  <p className="card-sub">{upcoming.length} upcoming · click a row to expand</p>
-                </div>
-                <div className="filter-pills">
-                  {([
-                    {key:"upcoming", label:"📅 Upcoming"},
-                    {key:"completed", label:"✅ Completed"},
-                    {key:"past",     label:"🕐 Past"},
-                  ] as const).map(f=>(
-                    <button key={f.key} className={"filter-pill"+(bookFilter===f.key?" active":"")} onClick={()=>setBookFilter(f.key)}>
-                      {f.label}
-                    </button>
-                  ))}
+                  <p className="card-sub">Select a date to view sessions</p>
                 </div>
               </div>
 
-              {filteredBookings.length === 0 ? (
-                <div className="empty-state">
-                  <div style={{fontSize:36,marginBottom:8}}>📭</div>
-                  <p style={{color:"var(--muted)"}}>No bookings in this category.</p>
+              {/* Horizontal scrollable calendar strip */}
+              <div style={{
+                display:"flex", alignItems:"center", gap:6, marginBottom:16,
+                overflow:"hidden",
+              }}>
+                <button
+                  className="cal-nav-btn"
+                  onClick={() => {
+                    const d = new Date(calScrollStart + "T00:00:00");
+                    d.setDate(d.getDate() - 7);
+                    setCalScrollStart(ymd(d));
+                  }}
+                  style={{ flexShrink:0 }}
+                  aria-label="Previous week"
+                >‹</button>
+                <div
+                  ref={calStripRef}
+                  style={{
+                    display:"flex", gap:8, overflowX:"auto", scrollSnapType:"x mandatory",
+                    flex:1, paddingBottom:4, scrollbarWidth:"thin",
+                    WebkitOverflowScrolling:"touch",
+                  }}
+                >
+                  {calDays.map(d => {
+                    const ds = ymd(d);
+                    const isToday = ds === ymd(new Date());
+                    const isSel = ds === calSelectedDate;
+                    const dayBookings = nonArchived.filter(b =>
+                      b.status === "paid" && ymd(b.slotStart.toDate()) === ds
+                    );
+                    const hasBookings = dayBookings.length > 0;
+                    const hasCompleted = dayBookings.some(b => (sessionStatuses[b.id] ?? "none") === "complete");
+                    return (
+                      <button
+                        key={ds}
+                        onClick={() => setCalSelectedDate(ds)}
+                        style={{
+                          flexShrink:0, width:64, paddingTop:10, paddingBottom:10,
+                          borderRadius:12, border:"2px solid", cursor:"pointer",
+                          display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+                          scrollSnapAlign:"start",
+                          borderColor: isSel ? "var(--teal)" : isToday ? "rgba(14,138,122,.3)" : "#e8edf3",
+                          background: isSel ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : isToday ? "#f0fdfa" : "#fff",
+                          color: isSel ? "#fff" : "var(--navy)",
+                          transition:"all .2s",
+                        }}
+                      >
+                        <span style={{fontSize:10,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
+                          {DOW_SHORT[d.getDay()]}
+                        </span>
+                        <span style={{fontSize:20,fontWeight:800}}>
+                          {d.getDate()}
+                        </span>
+                        <span style={{fontSize:9,opacity:.8}}>
+                          {MON_SHORT[d.getMonth()]}
+                        </span>
+                        {/* Booking indicator dots */}
+                        <span style={{display:"flex",gap:3,marginTop:2,height:6}}>
+                          {hasBookings && (
+                            <span style={{
+                              width:6, height:6, borderRadius:"50%",
+                              background: isSel ? "#fff" : hasCompleted ? "#0E8A7A" : "#0B2B4A",
+                            }} />
+                          )}
+                          {hasBookings && dayBookings.length > 1 && (
+                            <span style={{
+                              fontSize:8, fontWeight:700, lineHeight:"6px",
+                              color: isSel ? "rgba(255,255,255,.8)" : "var(--muted)",
+                            }}>
+                              {dayBookings.length}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
-                <div className="booking-compact-list">
-                  {filteredBookings.map(b => (
-                    <BookingCard key={b.id} b={b} onArchive={handleArchive} />
-                  ))}
-                </div>
-              )}
+                <button
+                  className="cal-nav-btn"
+                  onClick={() => {
+                    const d = new Date(calScrollStart + "T00:00:00");
+                    d.setDate(d.getDate() + 7);
+                    setCalScrollStart(ymd(d));
+                  }}
+                  style={{ flexShrink:0 }}
+                  aria-label="Next week"
+                >›</button>
+              </div>
 
-              {bookFilter === "past" && (
-                <p style={{fontSize:12,color:"var(--muted)",marginTop:12,textAlign:"center"}}>
-                  Tip: use the 🗄 Archive button on past bookings to keep your list tidy.
-                </p>
-              )}
+              {/* Selected date bookings */}
+              {(() => {
+                const dayBookings = nonArchived
+                  .filter(b => b.status === "paid" && ymd(b.slotStart.toDate()) === calSelectedDate)
+                  .sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis());
+
+                const selDateLabel = new Date(calSelectedDate + "T00:00:00").toLocaleDateString("en-NG", {
+                  weekday: "long", day: "numeric", month: "long", year: "numeric"
+                });
+
+                if (dayBookings.length === 0) {
+                  return (
+                    <div className="empty-state">
+                      <div style={{fontSize:36,marginBottom:8}}>📅</div>
+                      <p style={{color:"var(--muted)"}}>No sessions on {selDateLabel}</p>
+                    </div>
+                  );
+                }
+                return (
+                  <>
+                    <div style={{
+                      fontSize:13, fontWeight:700, color:"var(--navy)", marginBottom:12,
+                      padding:"8px 14px", background:"#f8fafc", borderRadius:8,
+                      display:"flex", alignItems:"center", justifyContent:"space-between",
+                    }}>
+                      <span>{selDateLabel}</span>
+                      <span style={{fontSize:12,color:"var(--muted)"}}>
+                        {dayBookings.length} session{dayBookings.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="booking-compact-list">
+                      {dayBookings.map(b => (
+                        <BookingCard key={b.id} b={b} onArchive={handleArchive} />
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </>
         )}
