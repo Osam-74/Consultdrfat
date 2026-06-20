@@ -218,7 +218,8 @@ export async function sendMessage(
   bookingId: string,
   from: Role | "system",
   text: string,
-  file?: { url: string; type: string; name: string; size: number }
+  file?: { url: string; type: string; name: string; size: number },
+  replyTo?: { id: string; text: string; from: string }
 ) {
   const payload: Record<string, unknown> = { from, text, t: Date.now() };
   if (file) {
@@ -226,6 +227,11 @@ export async function sendMessage(
     payload.fileType = file.type;
     payload.fileName = file.name;
     payload.fileSize = file.size;
+  }
+  if (replyTo) {
+    payload.replyToId = replyTo.id;
+    payload.replyToText = replyTo.text.slice(0, 120); // truncate for display
+    payload.replyToFrom = replyTo.from;
   }
   await addDoc(collection(db, "sessions", bookingId, "messages"), payload);
 }

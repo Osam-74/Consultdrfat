@@ -66,6 +66,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Client leave confirmation dialog
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
+  // ── Message reply/tagging ──
+  // User can tap any message to quote-reply to it. The quoted message
+  // appears above the composer and is sent as a reply reference.
+  const [replyTo, setReplyTo] = useState<{ id: string; text: string; from: string } | null>(null);
+
   // ── Client "Notify" ping button state ──
   // Client can ping the practitioner once every 5 minutes.
   // Button grays out for 3 minutes after pressing, then re-enables.
@@ -289,6 +294,52 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status]);
 
+  // ── Voice keepalive — check connection health every 30s ──
+  // If the peer connection has dropped (failed/disconnected for >15s),
+  // we tear down and re-join voice automatically. This handles mobile
+  // network switches, carrier timeouts, and WiFi changes.
+  const voiceKeepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceDownSinceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (session?.status !== "live") return;
+    if (!voiceRef.current) return;
+    voiceKeepaliveRef.current = setInterval(() => {
+      const pc = voiceRef.current?.pc;
+      if (!pc) return;
+      const state = pc.connectionState;
+      if (state === "failed" || state === "disconnected" || state === "closed") {
+        if (voiceDownSinceRef.current === null) {
+          voiceDownSinceRef.current = Date.now();
+        }
+        // If down for >15s, attempt reconnection
+        if (voiceDownSinceRef.current && Date.now() - voiceDownSinceRef.current > 15_000) {
+          console.warn("[Voice] Connection down >15s — reconnecting...");
+          voiceDownSinceRef.current = null;
+          // Tear down existing voice
+          voiceRef.current?.stop().catch(() => {});
+          voiceRef.current = null;
+          localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+          localStreamRef.current = null;
+          setVoiceLive(false);
+          setMicOn(false);
+          // Re-join after a brief delay
+          setTimeout(() => {
+            if (hasAutoJoinedRef.current) {
+              joinVoice();
+            }
+          }, 2000);
+        }
+      } else if (state === "connected") {
+        voiceDownSinceRef.current = null;
+      }
+    }, 30_000);
+    return () => {
+      if (voiceKeepaliveRef.current) clearInterval(voiceKeepaliveRef.current);
+      voiceKeepaliveRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status]);
+
   // ── Teardown + redirect on session complete ──────────────────────────
   useEffect(() => {
     if (!session) return;
@@ -429,7 +480,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const sessionComplete = (session?.status as string) === "complete";
   const send = () => {
     if (!sessionLive) return;
-    const v = draft.trim(); if (!v) return; sendMessage(bookingId, role, v); setDraft("");
+    const v = draft.trim(); if (!v) return;
+    sendMessage(bookingId, role, v, undefined, replyTo ?? undefined);
+    setDraft("");
+    setReplyTo(null);
   };
 
   const queueWarn = isPract && session.nextClientAt && chosen
@@ -579,8 +633,30 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   const cls = m.from === "system" ? "system" : m.from === role ? "mine" : "theirs";
                   const isImage = m.fileUrl && m.fileType?.startsWith("image/");
                   const isDoc   = m.fileUrl && !isImage;
+                  const canReply = m.from !== "system" && sessionLive;
                   return (
-                    <div key={m.id} className={"msg " + cls}>
+                    <div
+                      key={m.id}
+                      className={"msg " + cls}
+                      onClick={() => canReply && setReplyTo({ id: m.id, text: m.text, from: m.from })}
+                      style={canReply ? { cursor: "pointer" } : {}}
+                      title={canReply ? "Tap to reply" : undefined}
+                    >
+                      {/* Reply quote — shows the original message being replied to */}
+                      {m.replyToText && (
+                        <div className="msg-reply-quote" style={{
+                          borderLeft: "2px solid rgba(255,255,255,.3)",
+                          paddingLeft: 8, marginBottom: 4,
+                          fontSize: 11.5, opacity: 0.65,
+                          whiteSpace: "pre-wrap", wordBreak: "break-word",
+                          fontStyle: "italic",
+                        }}>
+                          <span style={{ fontWeight: 600 }}>
+                            {m.replyToFrom === role ? "You" : m.replyToFrom === "practitioner" ? "Dr. Fat" : "Client"}:
+                          </span>{" "}
+                          {m.replyToText}
+                        </div>
+                      )}
                       {/* Inline image preview — full res from R2 CDN */}
                       {isImage && (
                         <div className="msg-attachment">
@@ -589,7 +665,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                             src={m.fileUrl}
                             alt={m.fileName ?? "shared image"}
                             className="msg-img"
-                            onClick={() => window.open(m.fileUrl, "_blank")}
+                            onClick={(e) => { e.stopPropagation(); window.open(m.fileUrl, "_blank"); }}
                           />
                           <a
                             className="msg-dl-link"
@@ -597,6 +673,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                             target="_blank"
                             rel="noopener noreferrer"
                             download={m.fileName ?? "image"}
+                            onClick={(e) => e.stopPropagation()}
                           >
                             ⬇ Download {m.fileName}
                           </a>
@@ -611,15 +688,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                             target="_blank"
                             rel="noopener noreferrer"
                             download={m.fileName ?? "file"}
+                            onClick={(e) => e.stopPropagation()}
                           >
                             📄 {m.fileName} ({m.fileSize ? (m.fileSize/1024).toFixed(0)+"KB" : ""}) ⬇
                           </a>
                         </div>
                       )}
-                      {/* Text label */}
-                      {(!isImage && !isDoc) && <span>{m.text}</span>}
+                      {/* Text label — pre-wrap for proper word wrapping */}
+                      {(!isImage && !isDoc) && <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.text}</span>}
                       {(isImage || isDoc) && (
-                        <span style={{fontSize:11,opacity:.6,display:"block",marginTop:3}}>
+                        <span style={{fontSize:11,opacity:.6,display:"block",marginTop:3,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                           {m.text.replace(/^[🖼️📎]+\s*/,"")}
                         </span>
                       )}
@@ -630,16 +708,57 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   );
                 })}
             </div>
+            {/* Reply preview bar — shows above composer when replying */}
+            {replyTo && (
+              <div className="reply-bar" style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "8px 14px", background: "rgba(0,0,0,.04)",
+                borderTop: "1px solid var(--line)", fontSize: 12,
+              }}>
+                <span style={{ color: "var(--muted)", flexShrink: 0 }}>↩ Replying to</span>
+                <span style={{
+                  flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+                  whiteSpace: "nowrap", color: "var(--ink)", fontStyle: "italic",
+                }}>
+                  {replyTo.from === role ? "You" : replyTo.from === "practitioner" ? "Dr. Fat" : "Client"}: {replyTo.text}
+                </span>
+                <button
+                  onClick={() => setReplyTo(null)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--muted)", fontSize: 16, padding: 0, flexShrink: 0,
+                  }}
+                  title="Cancel reply"
+                >×</button>
+              </div>
+            )}
+            {/* ── Composer — pinned to bottom, textarea for word wrapping ── */}
             <div className="composer">
-              <input
+              <textarea
                 value={draft}
                 onChange={(e) => sessionLive && setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && send()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
                 placeholder={sessionLive
                   ? (isPract ? "Message your client…" : "Message…")
                   : (isPract ? "Start the session to enable chat…" : "Waiting for practitioner to start…")}
                 disabled={!sessionLive}
-                style={!sessionLive ? {opacity:.45, cursor:"not-allowed"} : {}}
+                style={{
+                  ...(!sessionLive ? {opacity:.45, cursor:"not-allowed"} : {}),
+                  resize: "none",
+                  minHeight: 40,
+                  maxHeight: 100,
+                  lineHeight: "1.4",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  overflowY: "auto",
+                  flexGrow: 1,
+                }}
+                rows={1}
               />
               {/* File attachment button for client — only visible when practitioner enables it */}
               {!isPract && sessionLive && !attachmentsOn && (
@@ -822,7 +941,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <h3>Payment confirmed</h3>
             <p>Client has paid for +{offer.minutes} min. Tap below to resume the session.</p>
             <div className="ov-actions">
-              <button className="obtn amber" onClick={() => confirmExtension(bookingId, session)}>Confirm &amp; resume</button>
+              <button className="obtn amber" onClick={() => {
+                confirmExtension(bookingId, session);
+                setChosen(null); // reset so next time-out shows "Time's up" instead of auto-offering
+              }}>Confirm &amp; resume</button>
             </div>
           </div>
         );
@@ -841,6 +963,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 try { await completeSession(bookingId); }
                 catch (err) { console.error(err); alert("Could not end session — check connection and try again."); }
               }}>End session</button>
+              {/* Reset chosen so the overlay doesn't reappear incorrectly */}
             </div>
           </div>
         );
@@ -889,7 +1012,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           <p>Your practitioner is offering an additional {offer.minutes} minutes for {ngn(offer.priceNGN)}. Would you like to continue?</p>
           <div className="ov-actions">
             <button className="obtn amber" onClick={acceptOffer}>Accept &amp; pay</button>
-            <button className="obtn ghost" onClick={() => setOffer(bookingId, { ...offer, status: "declined" })}>No thanks</button>
+            <button className="obtn ghost" onClick={() => { setOffer(bookingId, { ...offer, status: "declined" }); }}>No thanks</button>
           </div>
         </div>
       );

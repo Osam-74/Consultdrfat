@@ -108,6 +108,10 @@ export async function startVoice(opts: {
               .then((offer) => pc.setLocalDescription(offer))
               .then(() => setDoc(callRef, { offer: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } }))
               .catch((e) => console.warn("[WebRTC] ICE restart failed:", e));
+          } else {
+            // Callee can't initiate restart, but can re-read the offer to re-negotiate
+            // The caller's restart will write a new offer, which our onSnapshot will pick up
+            console.log("[WebRTC] callee waiting for caller's ICE restart offer...");
           }
         } catch (e) { console.warn("[WebRTC] ICE restart error:", e); }
       }
@@ -115,8 +119,40 @@ export async function startVoice(opts: {
   };
   pc.onicegatheringstatechange = () =>
     console.log("[WebRTC] ICE gathering:", pc.iceGatheringState);
-  pc.oniceconnectionstatechange = () =>
-    console.log("[WebRTC] ICE connection:", pc.iceConnectionState);
+  // ── ICE connection monitoring with auto-reconnect ──
+  // When ICE disconnects (common on mobile network switches, WiFi changes,
+  // or carrier timeouts), we give it 10s to recover. If it doesn't, we
+  // trigger an ICE restart to re-establish the connection without tearing
+  // down the whole call.
+  let iceRestartCount = 0;
+  let iceDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  pc.oniceconnectionstatechange = () => {
+    const state = pc.iceConnectionState;
+    console.log("[WebRTC] ICE connection:", state);
+    // Clear any pending reconnect timer
+    if (iceDisconnectTimer) { clearTimeout(iceDisconnectTimer); iceDisconnectTimer = null; }
+    if (state === "disconnected") {
+      // Give ICE 10 seconds to self-heal before forcing a restart
+      iceDisconnectTimer = setTimeout(() => {
+        if (pc.iceConnectionState === "disconnected" && iceRestartCount < 3) {
+          iceRestartCount++;
+          console.warn(`[WebRTC] ICE disconnected >10s — restart #${iceRestartCount}`);
+          try {
+            if (caller && pc.currentLocalDescription) {
+              pc.createOffer({ iceRestart: true, offerToReceiveAudio: true })
+                .then((offer) => pc.setLocalDescription(offer))
+                .then(() => setDoc(callRef, { offer: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } }))
+                .catch((e) => console.warn("[WebRTC] ICE restart failed:", e));
+            }
+          } catch (e) { console.warn("[WebRTC] ICE restart error:", e); }
+        }
+      }, 10_000);
+    }
+    // Reset restart counter when connection is healthy again
+    if (state === "connected" || state === "completed") {
+      iceRestartCount = 0;
+    }
+  };
 
   // ── Firestore refs ───────────────────────────────────────────────────────
   const callRef       = doc(db, "calls", bookingId);

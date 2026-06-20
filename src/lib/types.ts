@@ -93,4 +93,7 @@ export interface Message {
   fileType?: string;
   fileName?: string;
   fileSize?: number;
+  replyToId?: string;
+  replyToText?: string;
+  replyToFrom?: string;
 }
