@@ -108,17 +108,20 @@ export async function cancelBooking(id: string) {
   await updateDoc(doc(db, "bookings", id), { status: "cancelled" });
 }
 export function watchBookings(cb: (rows: Booking[]) => void) {
-  // Only fetch non-archived bookings to minimise reads.
-  // sessionStatus is now embedded on the booking doc so no extra getSessionStatus() calls needed.
+  // Query ALL bookings sorted by slotStart (limited to 100).
+  // We filter archived client-side because Firestore `!=` queries exclude
+  // documents that don't have the field at all — which would hide new bookings
+  // that were never archived.
   const q = query(
     collection(db, "bookings"),
-    where("archived", "!=", true),
-    orderBy("archived"),
     orderBy("slotStart", "asc"),
     limit(100)
   );
   return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+    cb(snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => !b.archived)
+    )
   );
 }
 
@@ -731,15 +734,17 @@ export async function pingPresence(bookingId: string, uid: string): Promise<void
 
 /** Watch non-archived bookings for the practitioner */
 export function watchActiveBookings(cb: (rows: Booking[]) => void) {
+  // Filter archived client-side — Firestore `!=` excludes docs without the field.
   const q = query(
     collection(db, "bookings"),
-    where("archived", "!=", true),
-    orderBy("archived"),
     orderBy("slotStart", "asc"),
     limit(100)
   );
   return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
+    cb(snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => !b.archived)
+    )
   );
 }
 

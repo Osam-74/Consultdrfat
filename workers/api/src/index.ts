@@ -166,9 +166,14 @@ export default {
       return new Response(null, { headers: cors(env.ALLOW_ORIGIN) });
     }
 
-    // ── Health check ──────────────────────────────────────────────────────────
-    if (url.pathname === "/health" && req.method === "GET") {
-      return json({ ok: true, ts: Date.now() }, env);
+    // ── Root / health check ─────────────────────────────────────────────────────
+    if ((url.pathname === "/" || url.pathname === "/health") && req.method === "GET") {
+      return json({
+        ok: true,
+        service: "consultdrfat-api",
+        ts: Date.now(),
+        endpoints: ["/health", "/verify", "/webhook", "/turn", "/upload", "/files/{key}"],
+      }, env);
     }
 
     // ── Verify a Paystack transaction ─────────────────────────────────────────

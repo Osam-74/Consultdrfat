@@ -328,7 +328,7 @@ export default function BookPage() {
                       const isUpcoming = sessionStatus === "upcoming";
                       const slotMs = bk.slotStart.toMillis();
                       const nowMs = Date.now();
-                      const isResumable = !isLive && !isUpcoming && (nowMs - slotMs) < 20 * 60 * 1000;
+                      const isResumable = !isLive && !isUpcoming && sessionStatus !== "completed" && (nowMs - slotMs) < 20 * 60 * 1000;
                       const canReschedule = isUpcoming && !bk.rescheduledOnce && bk.status === "paid";
                       const isReschedulingThis = reschedulingId === bk.id;
                       const isCancellingThis = cancellingId === bk.id;

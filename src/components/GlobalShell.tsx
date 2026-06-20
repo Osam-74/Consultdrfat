@@ -41,28 +41,45 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
         const active = bookings.find((b) => b.status === "paid" && !b.archived);
         if (!active) { setActiveSessionId(null); return; }
 
-        // Use cached sessionStatus on the booking doc first (no extra read).
+        // The floating headphone should ONLY appear when the practitioner has
+        // started the session and it's currently live. Not on fresh bookings,
+        // not on upcoming sessions, not on completed sessions.
         const cachedStatus = (active as unknown as Record<string, unknown>).sessionStatus as string | undefined;
-        if (cachedStatus === "complete") { setActiveSessionId(null); return; }
-        // For "live", "idle", or unknown — show the bubble. The client can return
-        // to the session room regardless of whether it's started yet.
-        if (cachedStatus === "live" || cachedStatus === "idle" || !cachedStatus) {
+
+        if (cachedStatus === "live") {
           setActiveSessionId(active.id);
+          return;
         }
 
-        // One-time getDoc to check if session is complete (avoids a permanent listener)
+        // If cachedStatus is explicitly "complete", never show the bubble.
+        if (cachedStatus === "complete") {
+          setActiveSessionId(null);
+          return;
+        }
+
+        // If no cached status, do a ONE-TIME getDoc to check the session doc.
+        // Only show the bubble if the session doc exists AND status === "live".
+        // A fresh booking (no session doc) should NOT show the headphone.
         if (!cachedStatus) {
           try {
             const sessSnap = await getDoc(doc(db, "sessions", active.id));
             if (sessSnap.exists()) {
               const sessData = sessSnap.data() as { status?: string };
-              if (sessData.status === "complete") {
+              if (sessData.status === "live") {
+                setActiveSessionId(active.id);
+              } else {
                 setActiveSessionId(null);
-                return;
               }
+            } else {
+              // No session doc = practitioner hasn't started the session yet
+              setActiveSessionId(null);
             }
-            setActiveSessionId(active.id);
-          } catch { /* non-fatal — keep the bubble visible */ }
+          } catch {
+            setActiveSessionId(null);
+          }
+        } else {
+          // cachedStatus is "idle", "none", or any other non-live value
+          setActiveSessionId(null);
         }
       } catch {
         setActiveSessionId(null);
