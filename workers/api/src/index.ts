@@ -258,23 +258,17 @@ export default {
     if (url.pathname === "/turn" && req.method === "GET") {
       // Always include free OpenRelay TURN servers in the fallback — STUN alone
       // cannot traverse symmetric NATs (common on mobile/carrier networks).
+      // Keep to max 4 ICE servers to avoid Chrome's "5+ STUN/TURN servers slows down discovery" warning
       const fallback = {
         iceServers: [
           { urls: "stun:stun.cloudflare.com:3478" },
           { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
           {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject",
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443",
-            username: "openrelayproject",
-            credential: "openrelayproject",
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443?transport=tcp",
+            urls: [
+              "turn:openrelay.metered.ca:80",
+              "turn:openrelay.metered.ca:443",
+              "turn:openrelay.metered.ca:443?transport=tcp",
+            ],
             username: "openrelayproject",
             credential: "openrelayproject",
           },
@@ -299,7 +293,8 @@ export default {
         const data = (await r.json()) as { iceServers?: RTCIceServer[] };
         // Cloudflare returns iceServers as an array — merge with fallback TURN
         const cfServers = Array.isArray(data?.iceServers) ? data.iceServers : [];
-        const iceServers = [...cfServers, ...fallback.iceServers];
+        // Cap at 4 servers total to avoid Chrome warning
+        const iceServers = [...cfServers, ...fallback.iceServers].slice(0, 4);
         return json({ iceServers }, env);
       } catch {
         return json(fallback, env);

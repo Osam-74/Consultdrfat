@@ -8,6 +8,7 @@ import {
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
   getBookingById, pingPresence, getNextClientBooking,
   clientLeftSession,
+  notifyPractitioner,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, VoiceHandle } from "@/lib/webrtc";
@@ -64,6 +65,14 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   // Client leave confirmation dialog
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
+  // ── Client "Notify" ping button state ──
+  // Client can ping the practitioner once every 5 minutes.
+  // Button grays out for 3 minutes after pressing, then re-enables.
+  const [notifyCooldown, setNotifyCooldown] = useState(false); // true = grayed out
+  const [notifyDisabled, setNotifyDisabled] = useState(false); // true = fully disabled (first 3 min)
+  const notifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifyReEnableRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const msgsRef = useRef<HTMLDivElement>(null);
   const voiceRef = useRef<VoiceHandle | null>(null);
@@ -167,6 +176,32 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       if (practFileRef.current) practFileRef.current.value = "";
     }
   };
+
+  // ── Client "Notify" ping handler ──
+  const handleNotify = async () => {
+    if (notifyDisabled || notifyCooldown) return;
+    setNotifyDisabled(true);
+    setNotifyCooldown(true);
+    try {
+      await notifyPractitioner(bookingId);
+    } catch (err) {
+      console.error("Notify error:", err);
+    }
+    // Re-enable the button after 3 minutes (gray → active)
+    notifyReEnableRef.current = setTimeout(() => {
+      setNotifyDisabled(false);
+    }, 3 * 60 * 1000);
+    // Full cooldown is 5 minutes — after 5 min the client can press again
+    notifyTimerRef.current = setTimeout(() => {
+      setNotifyCooldown(false);
+    }, 5 * 60 * 1000);
+  };
+
+  // Cleanup notify timers on unmount
+  useEffect(() => () => {
+    if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current);
+    if (notifyReEnableRef.current) clearTimeout(notifyReEnableRef.current);
+  }, []);
 
   // ── Voice ──
   const joinVoice = async () => {
@@ -481,6 +516,32 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               <div className="session-not-started-banner">
                 {isPract ? "⏸ Press Start session below to begin" : "⏳ Waiting for practitioner to start the session…"}
               </div>
+            )}
+            {/* ── Client "Notify" button — ping the practitioner ── */}
+            {!isPract && !sessionLive && (
+              <button
+                onClick={handleNotify}
+                disabled={notifyDisabled}
+                style={{
+                  marginTop: 12,
+                  padding: "8px 20px",
+                  borderRadius: 10,
+                  border: "none",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: notifyDisabled ? "not-allowed" : "pointer",
+                  background: notifyDisabled
+                    ? "rgba(255,255,255,.08)"
+                    : "linear-gradient(135deg,#0E8A7A,#0B2B4A)",
+                  color: notifyDisabled ? "rgba(255,255,255,.3)" : "#fff",
+                  transition: "all .2s",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                🔔 Notify
+              </button>
             )}
             <div className="vn">{voiceLive ? "Voice connected" : micOn ? "Mic ready" : sessionLive ? "Join voice to talk" : "Voice locked"}</div>
             <div className="controls">

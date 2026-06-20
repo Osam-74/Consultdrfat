@@ -765,3 +765,21 @@ export async function getSessionStatus(bookingId: string): Promise<"none" | "idl
     return "none";
   }
 }
+
+/* ─────────────────────── Client Ping / Notify ──────────────────────────
+   Instead of polling the waiting room every few seconds (which burns quota),
+   the client presses a "Notify" button in the session room. This writes a
+   `clientPing` timestamp on the booking doc. The practitioner dashboard
+   watches bookings in real-time and shows a notification + plays a sound
+   when it sees a fresh ping (within the last 60 seconds).
+   The client can only ping once every 5 minutes (enforced client-side).
+──────────────────────────────────────────────────────────────────────────── */
+
+/** Client presses "Notify" — stamps booking with current time as clientPing */
+export async function notifyPractitioner(bookingId: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, "bookings", bookingId), {
+      clientPing: Date.now(),
+    });
+  } catch { /* non-fatal */ }
+}

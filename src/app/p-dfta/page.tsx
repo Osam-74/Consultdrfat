@@ -34,14 +34,47 @@ function calCells(base: Date): Date[] {
   return cells;
 }
 
-const BrandNav = ({ onSignOut }: { onSignOut: () => void }) => (
+const BrandNav = ({ onSignOut, waitingCount, pingCount, onPingClick }: {
+  onSignOut: () => void;
+  waitingCount: number;
+  pingCount: number;
+  onPingClick: () => void;
+}) => (
   <nav className="nav" style={{borderBottom:"1px solid var(--line)",marginBottom:4}}>
     <Link href="/" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:10}} className="brand">
       <div className="brand-icon">🩺</div>
       <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
     </Link>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <Link href="/waiting-room" className="btn btn-ghost btn-sm">Waiting Room</Link>
+      {/* Waiting Room button with ping badge */}
+      <div style={{position:"relative",display:"flex",alignItems:"center",gap:6}}>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onPingClick}
+          style={{
+            display:"flex",alignItems:"center",gap:6,
+            background: pingCount > 0 ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : undefined,
+            color: pingCount > 0 ? "#fff" : undefined,
+            border: pingCount > 0 ? "none" : undefined,
+            animation: pingCount > 0 ? "pulse 1.5s infinite" : undefined,
+          }}
+        >
+          🚪 Waiting Room
+          {waitingCount > 0 && (
+            <span style={{
+              background: pingCount > 0 ? "rgba(255,255,255,.25)" : "var(--teal)",
+              color: "#fff", borderRadius: 10, padding: "1px 7px",
+              fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: "center",
+            }}>{waitingCount}</span>
+          )}
+          {pingCount > 0 && (
+            <span style={{
+              background:"#ef4444", borderRadius:"50%", width:8, height:8,
+              display:"inline-block", boxShadow:"0 0 0 2px #fff",
+            }} />
+          )}
+        </button>
+      </div>
       <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
     </div>
   </nav>
@@ -139,6 +172,11 @@ export default function AdminPage() {
   const [waitingSessions, setWaitingSessions] = useState<Record<string, string>>({});
   const [waitingRoomOpen, setWaitingRoomOpen] = useState(false);
 
+  // ── Client ping notification ──
+  const [pingNotification, setPingNotification] = useState<{ name: string; bookingId: string; time: number } | null>(null);
+  const lastPingSeenRef = useRef<Record<string, number>>({});
+  const pingAudioRef = useRef<HTMLAudioElement | null>(null);
+
   // Availability calendar
   const today = useMemo(() => { const d=new Date(); d.setHours(0,0,0,0); return d; }, []);
   const [calMonth, setCalMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
@@ -192,6 +230,23 @@ export default function AdminPage() {
       const ws: Record<string, "idle" | "live" | "complete" | "none"> = {};
       waiting.forEach(b => { ws[b.id] = statuses[b.id] || "idle"; });
       setWaitingSessions(ws);
+
+      // ── Detect client pings ──
+      // A ping is "fresh" if clientPing timestamp is within the last 60 seconds
+      // and we haven't already shown this ping.
+      const nowMs = Date.now();
+      rows.forEach(b => {
+        const pingTime = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+        if (!pingTime || typeof pingTime !== "number") return;
+        if (nowMs - pingTime > 60_000) return; // stale ping
+        const lastSeen = lastPingSeenRef.current[b.id] ?? 0;
+        if (pingTime > lastSeen) {
+          lastPingSeenRef.current[b.id] = pingTime;
+          setPingNotification({ name: b.clientName ?? "A client", bookingId: b.id, time: pingTime });
+          // Play ping sound
+          playPingSound();
+        }
+      });
     });
   }, [role]);
 
@@ -278,6 +333,32 @@ export default function AdminPage() {
   // Earnings from ALL paid bookings — never reduced by archiving
   const totalEarnings = allPaid.reduce((a, b) => a + b.amountNGN, 0);
 
+  // ── Consultation hours: total duration of all completed sessions ──
+  // Uses completedAt - session start (slotStart) for each completed session.
+  // Falls back to sessionLengthMin * 60s if completedAt is missing.
+  const consultationHours = (() => {
+    const completed = bookings.filter(b => b.status === "paid" && (sessionStatuses[b.id] ?? "none") === "complete");
+    let totalSeconds = 0;
+    completed.forEach(b => {
+      const startMs = b.slotStart.toMillis();
+      const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (settings.sessionLengthMin * 60_000);
+      const durSec = Math.max(0, Math.round((endMs - startMs) / 1000));
+      totalSeconds += durSec;
+    });
+    return Math.floor(totalSeconds / 3600);
+  })();
+
+  // ── Active patients: unique clientIds who have made bookings ──
+  const activePatients = new Set(
+    bookings.filter(b => b.status === "paid" && b.clientId).map(b => b.clientId)
+  ).size;
+
+  // ── Ping count: number of fresh pings (within last 5 minutes) ──
+  const pingCount = bookings.filter(b => {
+    const pingTime = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+    return pingTime && typeof pingTime === "number" && (Date.now() - pingTime) < 5 * 60 * 1000;
+  }).length;
+
   // Earnings chart data
   const now2 = new Date();
   const earningsChartData = (() => {
@@ -320,37 +401,101 @@ export default function AdminPage() {
   const selExtra     = selDate ? extraWindows(selDate) : [];
   const selBlocked   = selDate ? isBlocked(selDate) : false;
 
+  // ── Ping sound ──
+  const playPingSound = () => {
+    try {
+      // Generate a simple notification tone using Web Audio API
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+      oscillator.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.15); // E6
+      gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.5);
+    } catch { /* non-fatal */ }
+  };
+
+  // Auto-dismiss ping notification after 15 seconds
+  useEffect(() => {
+    if (!pingNotification) return;
+    const timer = setTimeout(() => setPingNotification(null), 15_000);
+    return () => clearTimeout(timer);
+  }, [pingNotification]);
+
   return (
     <div style={{minHeight:"100vh",background:"var(--paper)"}}>
       <div className="wrap">
-        <BrandNav onSignOut={signOut} />
+        <BrandNav onSignOut={signOut} waitingCount={waitingRoom.length} pingCount={pingCount} onPingClick={() => { setTab("bookings"); setWaitingRoomOpen(true); }} />
+
+        {/* ── Ping notification banner ── */}
+        {pingNotification && (
+          <div style={{
+            position: "fixed", top: 16, right: 16, zIndex: 10000,
+            background: "linear-gradient(135deg,#0E8A7A,#0B2B4A)",
+            color: "#fff", borderRadius: 14, padding: "14px 18px",
+            boxShadow: "0 8px 32px rgba(14,138,122,.4)", maxWidth: 340,
+            display: "flex", alignItems: "center", gap: 12,
+            animation: "fadeSlideUp .3s ease",
+          }}>
+            <span style={{ fontSize: 24, flexShrink: 0 }}>🔔</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{pingNotification.name} is waiting</div>
+              <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>Client pressed Notify — start the session</div>
+            </div>
+            <Link href={`/session/?id=${pingNotification.bookingId}&role=practitioner`}
+              style={{
+                background: "rgba(255,255,255,.2)", color: "#fff",
+                borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700,
+                textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
+              }}>
+              Start →
+            </Link>
+            <button onClick={() => setPingNotification(null)}
+              style={{
+                background: "none", border: "none", color: "rgba(255,255,255,.6)",
+                cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0,
+              }}>×</button>
+          </div>
+        )}
 
 
 
-        {/* Stats grid — Upcoming full width, then Completed + Waiting */}
+        {/* Stats grid — Upcoming full width on top, then 4 stats below in one row */}
         <div className="dash-stats-grid">
-          {/* Upcoming — full width row, teal/navy gradient */}
+          {/* Upcoming — full width row, teal/navy gradient (unchanged) */}
           <div className="stat-card stat-card-wide stat-card-hero">
             <div className="stat-icon" style={{fontSize:32}}>📅</div>
             <div style={{flex:1}}>
               <div className="stat-val" style={{color:"#fff",fontSize:36}}>{upcoming.length}</div>
               <div className="stat-lbl" style={{color:"rgba(255,255,255,.75)"}}>Upcoming Sessions</div>
               <div className="stat-summary" style={{color:"rgba(255,255,255,.55)"}}>
-                {upcomingToday} booking{upcomingToday!==1?"s":""} today &nbsp;·&nbsp; {upcomingThisWeek} this week
+                {bookingsToday} booking{bookingsToday!==1?"s":""} today &nbsp;·&nbsp; {bookingsThisWeek} this week
               </div>
             </div>
           </div>
+
+          {/* Row 2: 4 stats in one row with light teal shades */}
           {/* Completed */}
-          <div className="stat-card">
+          <div className="stat-card" style={{background:"#E8F6F4",borderColor:"#BFE7E1"}}>
             <div className="stat-icon">✅</div>
             <div className="stat-val" style={{color:"var(--navy)"}}>{completedCount}</div>
             <div className="stat-lbl">Completed</div>
           </div>
-          {/* Waiting Room */}
-          <div className="stat-card" style={{cursor:"pointer"}} onClick={()=>{setTab("bookings");setWaitingRoomOpen(true);}}>
-            <div className="stat-icon">🚪</div>
-            <div className="stat-val" style={{color:"var(--sky)"}}>{waitingRoom.length}</div>
-            <div className="stat-lbl">In Waiting Room</div>
+          {/* Consultation Hours — total duration of all completed sessions */}
+          <div className="stat-card" style={{background:"#E0F2F0",borderColor:"#A8DDD6"}}>
+            <div className="stat-icon">⏱️</div>
+            <div className="stat-val" style={{color:"var(--navy)"}}>{consultationHours}</div>
+            <div className="stat-lbl">{consultationHours === 1 ? "Consultation Hour" : "Consultation Hours"}</div>
+          </div>
+          {/* Total Active Patients — unique clients who have made bookings */}
+          <div className="stat-card" style={{background:"#D6EEE9",borderColor:"#8FD0C6"}}>
+            <div className="stat-icon">👥</div>
+            <div className="stat-val" style={{color:"var(--navy)"}}>{activePatients}</div>
+            <div className="stat-lbl">Active Patients</div>
           </div>
         </div>
 

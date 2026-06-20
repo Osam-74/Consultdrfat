@@ -10,7 +10,9 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/config/practitioner).data.uid;
     }
     function isPractitioner() {
-      return request.auth != null && request.auth.uid == practitionerUid();
+      return request.auth != null
+        && exists(/databases/$(database)/documents/config/practitioner)
+        && request.auth.uid == practitionerUid();
     }
     function signedIn() { return request.auth != null; }
 

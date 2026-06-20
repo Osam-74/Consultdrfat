@@ -20,23 +20,20 @@ import { Role } from "./types";
  */
 
 export async function getIceServers(): Promise<RTCIceServer[]> {
+  // Keep to max 4 ICE servers — using 5+ triggers a Chrome console warning
+  // and slows down ICE discovery. We combine STUN + a single TURN entry with
+  // multiple URL variants (UDP/TCP) in one server object, which Chrome treats
+  // as a single server for the count.
   const fallback: RTCIceServer[] = [
     { urls: "stun:stun.cloudflare.com:3478" },
     { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    // Free TURN servers from OpenRelay (fallback for restrictive NATs/carrier networks)
+    // OpenRelay TURN — UDP + TCP in one server object (counts as 1 server)
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
       username: "openrelayproject",
       credential: "openrelayproject",
     },

@@ -2174,7 +2174,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 /* Stats grid — Upcoming full width, then 2 equal columns */
 .dash-stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin: 20px 0;
 }
@@ -2191,9 +2191,18 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   margin-top: 3px;
   font-weight: 500;
 }
-@media (max-width: 480px) {
-  .dash-stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .stat-card-wide { gap: 12px; }
+@media (max-width: 768px) {
+  .dash-stats-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .dash-stats-grid .stat-card { padding: 10px 6px; }
+  .dash-stats-grid .stat-val { font-size: 16px; }
+  .dash-stats-grid .stat-lbl { font-size: 9px; }
+  .dash-stats-grid .stat-icon { font-size: 16px; }
+  .stat-card-wide { gap: 10px; }
+}
+@media (max-width: 380px) {
+  .dash-stats-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .dash-stats-grid .stat-card { padding: 8px 4px; }
+  .dash-stats-grid .stat-val { font-size: 14px; }
 }
 
 /* Dock icon-only button */
