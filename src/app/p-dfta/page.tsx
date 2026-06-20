@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import {
   getSettings, saveSettings, getTemplates, saveTemplate, deleteTemplate,
   getExceptions, addException, deleteException, watchBookings, ensurePractitionerConfig,
-  archiveBooking, watchWaitingRoom, getSessionStatus, watchDiscountCodes,
+  archiveBooking, watchDiscountCodes,
 } from "@/lib/db";
 import type { DiscountCode } from "@/lib/db";
 import {

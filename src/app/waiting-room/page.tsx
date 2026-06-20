@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { watchWaitingRoom, getSessionStatus } from "@/lib/db";
+import { watchWaitingRoom } from "@/lib/db";
 import { Booking } from "@/lib/types";
 
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -41,15 +41,19 @@ export default function WaitingRoomPage() {
     return () => clearInterval(iv);
   }, []);
 
-  // Watch waiting room
+  // Watch waiting room — use cached sessionStatus on booking doc (zero extra reads)
   useEffect(() => {
     if (role !== "practitioner") return;
-    const unsub = watchWaitingRoom(async (rows) => {
+    const unsub = watchWaitingRoom((rows) => {
       setClients(rows);
       const s: Record<string, SessStatus> = {};
-      await Promise.all(rows.map(async (b) => {
-        s[b.id] = await getSessionStatus(b.id);
-      }));
+      rows.forEach((b) => {
+        const cached = (b as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+        if (cached === "live") s[b.id] = "live";
+        else if (cached === "complete") s[b.id] = "complete";
+        else if (cached === "idle") s[b.id] = "idle";
+        else s[b.id] = "none";
+      });
       setStatuses(s);
     });
     return unsub;

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
   getSettings, getTemplates, getExceptions, getActiveBookings, createBooking, markBookingPaid,
-  getClientBookings, getLiveSession, cancelBooking, rescheduleBooking,
+  getClientBookings, cancelBooking, rescheduleBooking,
 } from "@/lib/db";
 import { validateDiscountCode, redeemDiscountCode } from "@/lib/db";
 import { generateSlots, groupByDay, Slot } from "@/lib/slots";
@@ -81,25 +81,24 @@ export default function BookPage() {
         try {
           const bookings = await getClientBookings(user.uid);
           const now = Date.now();
-          const items: RecentItem[] = [];
-          for (const bk of bookings.slice(0, 8)) {
+          // Use cached sessionStatus on booking doc — ZERO extra reads.
+          const items: RecentItem[] = bookings.slice(0, 6).map((bk) => {
             const slotMs = bk.slotStart.toMillis();
-            let sess: SessionDoc | null = null;
+            const cached = (bk as unknown as Record<string, unknown>).sessionStatus as string | undefined;
             let sessionStatus: SessionStatus;
-            try { sess = await getLiveSession(bk.id); } catch { sess = null; }
-            if (sess && sess.status === "live") {
+            if (cached === "live") {
               sessionStatus = "live";
+            } else if (cached === "complete") {
+              sessionStatus = "completed";
             } else if (slotMs > now) {
               sessionStatus = "upcoming";
             } else {
               sessionStatus = "completed";
             }
-            items.push({ booking: bk, sessionStatus, session: sess });
-            if (items.length >= 6) break;
-          }
+            return { booking: bk, sessionStatus, session: null };
+          });
           setRecentItems(items);
         } catch (err) {
-          // Log so we can trace Firestore permission / index errors in the console
           console.error("[recent sessions] failed to load:", err);
         }
         setRecentLoading(false);
@@ -449,13 +448,14 @@ export default function BookPage() {
                                         setReschedulePaying(false);
                                         // Refresh recent items
                                         const updated = await getClientBookings(user.uid);
-                                        const items: RecentItem[] = await Promise.all(updated.slice(0,8).map(async b2 => {
-                                          let sess2 = null; let st: SessionStatus = "upcoming";
-                                          try { sess2 = await getLiveSession(b2.id); } catch {}
-                                          if (sess2?.status === "live") st = "live";
+                                        const items: RecentItem[] = updated.slice(0,6).map(b2 => {
+                                          const cached = (b2 as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+                                          let st: SessionStatus = "upcoming";
+                                          if (cached === "live") st = "live";
+                                          else if (cached === "complete") st = "completed";
                                           else if (b2.slotStart.toMillis() < Date.now()) st = "completed";
-                                          return { booking: b2, sessionStatus: st, session: sess2 };
-                                        }));
+                                          return { booking: b2, sessionStatus: st, session: null };
+                                        });
                                         setRecentItems(items);
                                       },
                                       onCancel: () => setReschedulePaying(false),

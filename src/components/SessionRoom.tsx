@@ -124,27 +124,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       setClientUid(b.clientId ?? "");
     }).catch(() => {});
 
-    // One-time fetch — avoids watchBookings() subscribing to ALL bookings.
-    // Next-client label doesn't change mid-session so a single read is fine.
-    const bkPromise = getBookingById(bookingId);
-    bkPromise.then(async (bk) => {
-      if (!bk) return;
-      try {
-        const { getDocs, query, collection, where, orderBy } = await import("firebase/firestore");
-        const { db: fdb } = await import("@/lib/firebase");
-        const q = query(collection(fdb, "bookings"), where("status", "==", "paid"), orderBy("slotStart", "asc"));
-        const snap = await getDocs(q);
-        const currentMs = bk.slotStart.toMillis();
-        const nextDoc = snap.docs
-          .map(d => ({ id: d.id, ...d.data() } as { id: string; slotStart: { toMillis: () => number }; archived?: boolean }))
-          .find(b => !b.archived && b.id !== bookingId && b.slotStart.toMillis() > currentMs);
-        if (nextDoc) {
-          const label = new Date(nextDoc.slotStart.toMillis()).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
-          setNextClientLabel(label);
-          setNextClient(bookingId, label);
-        }
-      } catch { /* non-fatal */ }
-    }).catch(() => {});
+    // Next-client lookup removed — was doing 2 extra Firestore reads per session.
+    // Practitioner can see upcoming clients on their dashboard instead.
     return () => {};
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, isPract]);

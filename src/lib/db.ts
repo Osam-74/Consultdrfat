@@ -108,17 +108,19 @@ export async function cancelBooking(id: string) {
   await updateDoc(doc(db, "bookings", id), { status: "cancelled" });
 }
 export function watchBookings(cb: (rows: Booking[]) => void) {
-  // Only fetch non-archived bookings to minimise reads.
-  // sessionStatus is now embedded on the booking doc so no extra getSessionStatus() calls needed.
+  // Broad query + client-side archived filter.
+  // where("archived","!=",true) EXCLUDES legacy docs that don't have the field at all.
+  // This is the ONLY safe approach that handles both new and legacy bookings.
   const q = query(
     collection(db, "bookings"),
-    where("archived", "!=", true),
-    orderBy("archived"),
     orderBy("slotStart", "asc")
   );
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
-  );
+  return onSnapshot(q, (snap) => {
+    const rows = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => b.archived !== true);
+    cb(rows);
+  });
 }
 
 /* ───────────────────────── Sessions ────────────────────────── */
@@ -578,18 +580,17 @@ export async function setAttachmentsEnabled(bookingId: string, enabled: boolean)
  * Ordered newest-first. Includes past sessions.
  */
 export async function getClientBookings(clientUid: string): Promise<Booking[]> {
-  // Query by clientId only + sort by slotStart desc.
-  // Filtering by status here would require a 3-field composite index that isn't
-  // always deployed; instead we filter client-side to exclude cancelled bookings.
+  // Single equality filter — NO orderBy — avoids needing a composite index.
+  // Sort client-side instead.
   const q = query(
     collection(db, "bookings"),
-    where("clientId", "==", clientUid),
-    orderBy("slotStart", "desc")
+    where("clientId", "==", clientUid)
   );
   const snap = await getDocs(q);
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
-    .filter((b) => b.status !== "cancelled");
+    .filter((b) => b.status !== "cancelled")
+    .sort((a, b) => b.slotStart.toMillis() - a.slotStart.toMillis()); // newest first
 }
 
 /**
@@ -629,30 +630,28 @@ export function watchSessionStatus(
  *  - Clients already in the room (slot started up to 30 min ago)
  */
 export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
-  // Watch bookings in a rolling [-30min, +2h] window around now.
-  // Re-evaluated each snapshot so the window stays fresh if the page is left open.
-  // Single-field index on slotStart is sufficient for a range query — no composite needed.
-  const windowStart = Timestamp.fromMillis(Date.now() - 30 * 60 * 1000);
-  const windowEnd   = Timestamp.fromMillis(Date.now() + 2 * 60 * 60 * 1000);
+  // Broad query on slotStart — client-side filtering for the rolling window.
+  // The previous approach computed windowStart/windowEnd at subscription time,
+  // which meant the Firestore query window was frozen even though we filtered
+  // client-side. This works but can miss bookings if the page is open for hours.
+  // Using a broad query + client-side filter is simpler and always correct.
   const q = query(
     collection(db, "bookings"),
-    where("slotStart", ">=", windowStart),
-    where("slotStart", "<=", windowEnd),
     orderBy("slotStart", "asc")
   );
   return onSnapshot(q, (snap) => {
     const freshNow = Date.now();
-    const freshStart = freshNow - 30 * 60 * 1000;
-    const freshEnd   = freshNow + 2 * 60 * 60 * 1000;
+    const freshStart = freshNow - 30 * 60 * 1000;   // 30 min ago (early arrivals)
+    const freshEnd   = freshNow + 2 * 60 * 60 * 1000; // 2 hours ahead
     const rows = snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
       .filter((b) => {
         const ms = b.slotStart.toMillis();
         return (
-          b.status === "paid" &&   // only confirmed-paid bookings
-          !b.archived &&           // not archived by practitioner
-          !b.inSession &&          // not already in a live session
-          ms >= freshStart &&      // within rolling window
+          b.status === "paid" &&
+          b.archived !== true &&    // handles legacy docs without archived field
+          !b.inSession &&
+          ms >= freshStart &&
           ms <= freshEnd
         );
       });
@@ -699,15 +698,18 @@ export async function pingPresence(bookingId: string, uid: string): Promise<void
 
 /** Watch non-archived bookings for the practitioner */
 export function watchActiveBookings(cb: (rows: Booking[]) => void) {
+  // Broad query + client-side filter — handles legacy docs without archived field.
+  // where("archived","!=",true) EXCLUDES docs that don't have the field at all.
   const q = query(
     collection(db, "bookings"),
-    where("archived", "!=", true),
-    orderBy("archived"),
     orderBy("slotStart", "asc")
   );
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) })))
-  );
+  return onSnapshot(q, (snap) => {
+    const rows = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
+      .filter((b) => b.archived !== true);
+    cb(rows);
+  });
 }
 
 /** Get session status for a booking (for waiting room check) */
