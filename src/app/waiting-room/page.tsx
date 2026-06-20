@@ -91,7 +91,7 @@ export default function WaitingRoomPage() {
         {clients.length === 0 ? (
           <div className="empty-state" style={{ paddingTop: 60 }}>
             <div style={{ fontSize: 56, marginBottom: 12 }}>🪑</div>
-            <p style={{ color: "var(--muted)", fontSize: 15 }}>No clients scheduled in the next 8 hours.</p>
+            <p style={{ color: "var(--muted)", fontSize: 15 }}>No clients waiting right now.</p>
             <Link href="/p-dfta" className="btn btn-primary" style={{ marginTop: 16 }}>Back to Dashboard</Link>
           </div>
         ) : (
@@ -158,6 +158,20 @@ export default function WaitingRoomPage() {
                     <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 2 }}>
                       📅 {fmtDT(d)} &nbsp;·&nbsp; <span style={{ fontWeight: 600, color: isPast ? "#c2410c" : "var(--teal)" }}>{timeDiff(slotMs)}</span>
                     </div>
+                    {(() => {
+                      const pt = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+                      if (!pt || typeof pt !== "number") return null;
+                      const isFresh = (Date.now() - pt) < 5 * 60 * 1000;
+                      if (!isFresh) return null;
+                      const secsAgo = Math.floor((Date.now() - pt) / 1000);
+                      const minsAgo = Math.floor(secsAgo / 60);
+                      return (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block", animation: "pingBlink 1s infinite" }} />
+                          Pinged {minsAgo > 0 ? minsAgo + "m" : secsAgo + "s"} ago — waiting for you!
+                        </div>
+                      );
+                    })()}
                     {b.topic && (
                       <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
                         💬 {b.topic}

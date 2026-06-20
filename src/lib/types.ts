@@ -67,9 +67,10 @@ export interface Booking {
 
 export interface Offer {
   minutes: number;
-  priceNGN: number;
-  status: "sent" | "accepted" | "confirmed" | "declined";
+  priceNGN: number;       // 0 = free extension
+  status: "sent" | "accepted" | "confirmed" | "declined" | "client-requested";
   paystackRef?: string;
+  isFree?: boolean;       // true when practitioner offers free extension
 }
 
 export interface SessionDoc {
@@ -82,6 +83,8 @@ export interface SessionDoc {
   attachmentsEnabled?: boolean;
   // Presence: uid → last-seen epoch ms (written by each client every 15s)
   presence?: Record<string, number>;
+  // Client extension request: "pending" when client asks for more time
+  clientExtRequest?: "pending" | "responded";
 }
 
 export interface Message {

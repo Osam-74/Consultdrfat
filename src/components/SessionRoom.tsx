@@ -9,12 +9,13 @@ import {
   getBookingById, pingPresence, getNextClientBooking,
   clientLeftSession,
   notifyPractitioner,
+  requestExtension, clearExtRequest,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
-import { SessionDoc, Message, Role, EXTENSION_MINUTES, DEFAULT_SETTINGS } from "@/lib/types";
+import { SessionDoc, Message, Role, DEFAULT_SETTINGS } from "@/lib/types";
 
 const ngn = (n: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(n);
 function fmt(ms: number) {
@@ -33,6 +34,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [now, setNow] = useState(Date.now());
   const [draft, setDraft] = useState("");
   const [chosen, setChosen] = useState<number | null>(null);
+  // Practitioner custom extension offer form
+  const [extMinutes, setExtMinutes] = useState(15);
+  const [extAmount, setExtAmount] = useState(0);
+  const [extIsFree, setExtIsFree] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [scale, setScale] = useState(1);
   const [voiceLive, setVoiceLive] = useState(false);
@@ -208,6 +213,46 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     if (notifyReEnableRef.current) clearTimeout(notifyReEnableRef.current);
   }, []);
 
+  // ── Time warning beeps ──
+  // Plays 2 short beeps when remaining time hits 5min and again at 1min.
+  // Uses refs to ensure each warning fires exactly once per session.
+  const beepedAt5MinRef = useRef(false);
+  const beepedAt1MinRef = useRef(false);
+  const playTimeWarningBeep = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      // Two quick beeps
+      for (let i = 0; i < 2; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 1000; // 1kHz tone
+        const start = ctx.currentTime + i * 0.25;
+        gain.gain.setValueAtTime(0.15, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
+        osc.start(start);
+        osc.stop(start + 0.15);
+      }
+    } catch { /* non-fatal */ }
+  };
+
+  // Check remaining time and fire beeps
+  useEffect(() => {
+    if (!session || session.status !== "live") return;
+    const remainingMs = session.endAt ? session.endAt.toMillis() - now : 0;
+    // 5-minute warning
+    if (remainingMs <= 5 * 60_000 && remainingMs > 4 * 60_000 && !beepedAt5MinRef.current) {
+      beepedAt5MinRef.current = true;
+      playTimeWarningBeep();
+    }
+    // 1-minute warning
+    if (remainingMs <= 60_000 && remainingMs > 30_000 && !beepedAt1MinRef.current) {
+      beepedAt1MinRef.current = true;
+      playTimeWarningBeep();
+    }
+  }, [now, session]);
+
   // ── Voice ──
   const joinVoice = async () => {
     try {
@@ -279,20 +324,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     }
   }, []);
 
-  // ── Auto-join voice the moment session goes live ──────────────────────
-  // This fires for BOTH sides: practitioner (who just pressed Start)
-  // and client (who is waiting and sees the status flip to "live").
-  const hasAutoJoinedRef = useRef(false);
-  useEffect(() => {
-    if (!session) return;
-    if (session.status !== "live") return;
-    if (hasAutoJoinedRef.current) return;
-    if (localStreamRef.current) return; // already in voice
-    hasAutoJoinedRef.current = true;
-    joinVoice();
-  // joinVoice is stable (no deps change); session.status is what triggers this
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.status]);
+  // NOTE: Voice is NOT auto-joined. Both parties see a "Join Voice" button
+  // and can join individually. This respects user privacy — mic is not
+  // activated without explicit consent.
 
   // ── Voice keepalive — check connection health every 30s ──
   // If the peer connection has dropped (failed/disconnected for >15s),
@@ -322,9 +356,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           localStreamRef.current = null;
           setVoiceLive(false);
           setMicOn(false);
-          // Re-join after a brief delay
+          // Re-join after a brief delay (only if user was in voice before)
           setTimeout(() => {
-            if (hasAutoJoinedRef.current) {
+            if (voiceRef.current === null && localStreamRef.current === null) {
+              // User was in voice — re-join automatically
               joinVoice();
             }
           }, 2000);
@@ -357,10 +392,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     voiceRef.current?.stop().catch(() => {});
     voiceRef.current = null;
 
-    // 4. Kill the remote audio element — detach srcObject and pause
+    // 4. Kill the remote audio element — detach srcObject, pause, and mute
     if (remoteAudioRef.current) {
       try { remoteAudioRef.current.pause(); } catch {}
       try { remoteAudioRef.current.srcObject = null; } catch {}
+      try { remoteAudioRef.current.muted = true; } catch {}
     }
 
     // 5. Update UI state
@@ -487,7 +523,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   };
 
   const queueWarn = isPract && session.nextClientAt && chosen
-    ? `Next client is booked at ${session.nextClientAt}` + (chosen >= 30 ? " — a +30 min extension may overlap." : " — a +15 min extension should still finish in time.")
+    ? `Next client is booked at ${session.nextClientAt}` + (extMinutes >= 30 ? " — this extension may overlap." : " — this extension should still finish in time.")
     : null;
 
   const acceptOffer = () => {
@@ -921,19 +957,95 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   function renderOverlay() {
     if (!session) return null;
+    const clientRequested = session.clientExtRequest === "pending";
 
-    // ── Practitioner overlays ──
+    // ════════════════════════════════════════════════════════════════
+    // PRACTITIONER OVERLAYS
+    // ════════════════════════════════════════════════════════════════
     if (isPract) {
-      // Extension offer states
+      // 1. Client has requested an extension — practitioner sees offer form
+      if (clientRequested && offer?.status !== "sent" && offer?.status !== "accepted") {
+        return (
+          <div className="overlay">
+            <div className="ov-icon">🙋</div>
+            <h3>Client requests more time</h3>
+            <p>Your client would like to extend the session. Offer them extra time below.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16, minWidth: 260 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "rgba(255,255,255,.7)", fontWeight: 600 }}>Extension minutes</label>
+                <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                  {[5, 10, 15, 20, 30].map(m => (
+                    <button key={m} onClick={() => setExtMinutes(m)}
+                      style={{
+                        padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                        background: extMinutes === m ? "var(--teal)" : "rgba(255,255,255,.12)",
+                        color: "#fff", fontWeight: 700, fontSize: 13, transition: "all .15s",
+                      }}>+{m}m</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "rgba(255,255,255,.7)", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>Amount to pay (₦)</span>
+                  <button onClick={() => setExtIsFree(!extIsFree)}
+                    style={{
+                      padding: "3px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                      background: extIsFree ? "var(--teal)" : "rgba(255,255,255,.12)",
+                      color: "#fff", fontWeight: 600, fontSize: 11,
+                    }}>{extIsFree ? "✓ Free" : "Mark as free"}</button>
+                </label>
+                <input
+                  type="number"
+                  value={extIsFree ? 0 : extAmount}
+                  disabled={extIsFree}
+                  onChange={e => setExtAmount(Math.max(0, +e.target.value))}
+                  placeholder="0"
+                  style={{
+                    width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8,
+                    border: "1.5px solid rgba(255,255,255,.2)", background: extIsFree ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.1)",
+                    color: "#fff", fontSize: 15, outline: "none", fontFamily: "inherit",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button className="obtn amber" style={{ flex: 1 }} onClick={() => {
+                  setChosen(extMinutes);
+                  setOffer(bookingId, { minutes: extMinutes, priceNGN: extIsFree ? 0 : extAmount, status: "sent", isFree: extIsFree });
+                  clearExtRequest(bookingId);
+                }}>
+                  {extIsFree ? `Offer +${extMinutes} min (FREE)` : `Offer +${extMinutes} min · ${ngn(extAmount)}`}
+                </button>
+              </div>
+              <button className="obtn ghost" onClick={async () => {
+                clearExtRequest(bookingId);
+                await completeSession(bookingId);
+              }}>Decline & end session</button>
+            </div>
+          </div>
+        );
+      }
+
+      // 2. Extension offer sent — waiting for client to accept/pay
       if (offer?.status === "sent") {
         return (
           <div className="overlay">
             <div className="ov-icon">⏳</div>
             <h3>Extension offer sent</h3>
-            <p>Offered +{offer.minutes} min ({ngn(offer.priceNGN)}). Waiting for the client to accept and pay…</p>
+            <p>Offered +{offer.minutes} min{offer.isFree || offer.priceNGN === 0 ? " (FREE)" : ` (${ngn(offer.priceNGN)})`}. Waiting for the client to accept{offer.isFree || offer.priceNGN === 0 ? "…" : " and pay…"}</p>
+            {/* For free extensions, auto-confirm immediately */}
+            {offer.isFree && (
+              <div className="ov-actions">
+                <button className="obtn amber" onClick={() => {
+                  confirmExtension(bookingId, session);
+                  setChosen(null);
+                }}>Confirm & resume (free)</button>
+              </div>
+            )}
           </div>
         );
       }
+
+      // 3. Client accepted and paid — practitioner confirms
       if (offer?.status === "accepted") {
         return (
           <div className="overlay">
@@ -943,86 +1055,155 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <div className="ov-actions">
               <button className="obtn amber" onClick={() => {
                 confirmExtension(bookingId, session);
-                setChosen(null); // reset so next time-out shows "Time's up" instead of auto-offering
+                setChosen(null);
               }}>Confirm &amp; resume</button>
             </div>
           </div>
         );
       }
-      // Timer ran out
+
+      // 4. Timer ran out — practitioner sees options
       if (!complete) return null;
       if (chosen === null) {
         return (
           <div className="overlay">
             <div className="ov-icon">⌛</div>
             <h3>Time&apos;s up</h3>
-            <p>The session time has elapsed. You can end the session or offer the client extra paid time.</p>
+            <p>The session time has elapsed. You can offer the client extra time or end the session.</p>
             <div className="ov-actions">
               <button className="obtn amber" onClick={() => setChosen(0)}>+ Offer more time</button>
               <button className="obtn red" onClick={async () => {
                 try { await completeSession(bookingId); }
                 catch (err) { console.error(err); alert("Could not end session — check connection and try again."); }
               }}>End session</button>
-              {/* Reset chosen so the overlay doesn't reappear incorrectly */}
             </div>
           </div>
         );
       }
+      // 5. Practitioner manually offering time (timer ran out, they chose to offer)
       if (chosen === 0) {
         return (
           <div className="overlay">
             <div className="ov-icon">⏱</div>
-            <h3>How much extra time?</h3>
+            <h3>Offer more time</h3>
             {queueWarn && <p className="warn-txt" style={{ color: "#F5D08A", fontSize: 13, marginBottom: 12 }}>{queueWarn}</p>}
-            <div className="ov-actions">
-              {EXTENSION_MINUTES.map(m => (
-                <button
-                  key={m}
-                  className="obtn amber"
-                  onClick={() => {
-                    setChosen(m);
-                    setOffer(bookingId, { minutes: m, priceNGN: priceFor(m), status: "sent" });
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 260 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "rgba(255,255,255,.7)", fontWeight: 600 }}>Extension minutes</label>
+                <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                  {[5, 10, 15, 20, 30].map(m => (
+                    <button key={m} onClick={() => setExtMinutes(m)}
+                      style={{
+                        padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                        background: extMinutes === m ? "var(--teal)" : "rgba(255,255,255,.12)",
+                        color: "#fff", fontWeight: 700, fontSize: 13,
+                      }}>+{m}m</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "rgba(255,255,255,.7)", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>Amount to pay (₦)</span>
+                  <button onClick={() => setExtIsFree(!extIsFree)}
+                    style={{
+                      padding: "3px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                      background: extIsFree ? "var(--teal)" : "rgba(255,255,255,.12)",
+                      color: "#fff", fontWeight: 600, fontSize: 11,
+                    }}>{extIsFree ? "✓ Free" : "Mark as free"}</button>
+                </label>
+                <input
+                  type="number"
+                  value={extIsFree ? 0 : extAmount}
+                  disabled={extIsFree}
+                  onChange={e => setExtAmount(Math.max(0, +e.target.value))}
+                  placeholder="0"
+                  style={{
+                    width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8,
+                    border: "1.5px solid rgba(255,255,255,.2)", background: extIsFree ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.1)",
+                    color: "#fff", fontSize: 15, outline: "none", fontFamily: "inherit",
                   }}
-                >
-                  +{m} min &middot; {ngn(priceFor(m))}
-                </button>
-              ))}
+                />
+              </div>
+              <button className="obtn amber" style={{ width: "100%" }} onClick={() => {
+                setChosen(extMinutes);
+                setOffer(bookingId, { minutes: extMinutes, priceNGN: extIsFree ? 0 : extAmount, status: "sent", isFree: extIsFree });
+              }}>
+                {extIsFree ? `Offer +${extMinutes} min (FREE)` : `Offer +${extMinutes} min · ${ngn(extAmount)}`}
+              </button>
+              <button className="obtn ghost" onClick={() => completeSession(bookingId)}>
+                No, end session
+              </button>
             </div>
-            <button className="obtn ghost" style={{ marginTop: 10 }} onClick={() => completeSession(bookingId)}>
-              No, end session
-            </button>
           </div>
         );
       }
+      // 6. Waiting for client to accept the offer
       return (
         <div className="overlay">
           <div className="ov-icon">💬</div>
           <h3>Extension offered</h3>
-          <p>Waiting for your client to accept +{chosen} min…</p>
+          <p>Waiting for your client to accept +{chosen} min{offer?.isFree || offer?.priceNGN === 0 ? " (FREE)" : ""}…</p>
         </div>
       );
     }
 
-    // ── Client overlays ──
+    // ════════════════════════════════════════════════════════════════
+    // CLIENT OVERLAYS
+    // ════════════════════════════════════════════════════════════════
+    // 1. Client sees offer from practitioner (paid or free)
     if (offer?.status === "sent") {
+      const isFree = offer.isFree || offer.priceNGN === 0;
       return (
         <div className="overlay">
-          <div className="ov-icon">⏰</div>
-          <h3>Extra time available</h3>
-          <p>Your practitioner is offering an additional {offer.minutes} minutes for {ngn(offer.priceNGN)}. Would you like to continue?</p>
+          <div className="ov-icon">{isFree ? "🎁" : "⏰"}</div>
+          <h3>{isFree ? "Free extra time!" : "Extra time available"}</h3>
+          <p>Your practitioner is offering an additional {offer.minutes} minutes{isFree ? " for free!" : ` for ${ngn(offer.priceNGN)}.`} Would you like to continue?</p>
           <div className="ov-actions">
-            <button className="obtn amber" onClick={acceptOffer}>Accept &amp; pay</button>
+            {isFree ? (
+              <button className="obtn amber" onClick={() => {
+                // Free extension — accept without payment
+                setOffer(bookingId, { ...offer, status: "accepted" });
+              }}>Accept free extension</button>
+            ) : (
+              <button className="obtn amber" onClick={acceptOffer}>Accept &amp; pay</button>
+            )}
             <button className="obtn ghost" onClick={() => { setOffer(bookingId, { ...offer, status: "declined" }); }}>No thanks</button>
           </div>
         </div>
       );
     }
+    // 2. Client accepted — waiting for practitioner to confirm
     if (offer?.status === "accepted") {
+      const isFree = offer.isFree || offer.priceNGN === 0;
       return (
         <div className="overlay">
           <div className="ov-icon">✅</div>
-          <h3>Payment received</h3>
+          <h3>{isFree ? "Extension accepted" : "Payment received"}</h3>
           <p>Waiting for your practitioner to confirm the extension…</p>
+        </div>
+      );
+    }
+    // 3. Timer ran out — client can request an extension
+    if (complete && !offer) {
+      return (
+        <div className="overlay">
+          <div className="ov-icon">⏰</div>
+          <h3>Session time has ended</h3>
+          <p>Would you like to request more time with your practitioner?</p>
+          <div className="ov-actions">
+            <button className="obtn amber" onClick={() => requestExtension(bookingId)}>Yes, request more time</button>
+            <button className="obtn ghost" onClick={() => { /* just leave it — session will end naturally */ }}>No, I&apos;m done</button>
+          </div>
+        </div>
+      );
+    }
+    // 4. Client already requested — waiting for practitioner to respond
+    if (clientRequested && !offer) {
+      return (
+        <div className="overlay">
+          <div className="ov-icon">⏳</div>
+          <h3>Extension requested</h3>
+          <p>Waiting for your practitioner to respond to your request…</p>
         </div>
       );
     }

@@ -194,6 +194,23 @@ export async function setNextClient(bookingId: string, label: string | null) {
 export async function setOffer(bookingId: string, offer: Offer | null) {
   await updateDoc(sessionRef(bookingId), { offer, updatedAt: serverTimestamp() });
 }
+
+/** Client requests an extension — notifies practitioner via session doc */
+export async function requestExtension(bookingId: string): Promise<void> {
+  await updateDoc(sessionRef(bookingId), {
+    clientExtRequest: "pending",
+    updatedAt: serverTimestamp(),
+  });
+  await sendMessage(bookingId, "system", "Client has requested extra time for this session.");
+}
+
+/** Practitioner clears the client extension request after responding */
+export async function clearExtRequest(bookingId: string): Promise<void> {
+  await updateDoc(sessionRef(bookingId), {
+    clientExtRequest: "responded",
+    updatedAt: serverTimestamp(),
+  });
+}
 export async function confirmExtension(bookingId: string, current: SessionDoc) {
   if (!current.offer) return;
   const base = current.endAt && current.endAt.toMillis() > Date.now()
@@ -202,9 +219,11 @@ export async function confirmExtension(bookingId: string, current: SessionDoc) {
     status: "live",
     endAt: Timestamp.fromMillis(base + current.offer.minutes * 60_000),
     offer: { ...current.offer, status: "confirmed" },
+    clientExtRequest: "responded",
     updatedAt: serverTimestamp(),
   });
-  await sendMessage(bookingId, "system", `Session resumed — +${current.offer.minutes} minutes added.`);
+  const freeNote = current.offer.priceNGN === 0 || current.offer.isFree ? " (free)" : "";
+  await sendMessage(bookingId, "system", `Session resumed — +${current.offer.minutes} minutes added${freeNote}.`);
 }
 
 /* ─────────────────────── Chat messages ─────────────────────── */
@@ -671,8 +690,8 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
   // Limited to 50 docs to minimise reads. The window is computed at subscription
   // time — the onSnapshot listener fires on every change within that window, so
   // the client-side filter always uses freshNow for the rolling cutoff.
-  const windowStart = Timestamp.fromMillis(Date.now() - 30 * 60 * 1000);
-  const windowEnd   = Timestamp.fromMillis(Date.now() + 2 * 60 * 60 * 1000);
+  const windowStart = Timestamp.fromMillis(Date.now() - 2 * 60 * 60 * 1000);
+  const windowEnd   = Timestamp.fromMillis(Date.now() + 8 * 60 * 60 * 1000);
   const q = query(
     collection(db, "bookings"),
     where("slotStart", ">=", windowStart),
@@ -688,12 +707,14 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
       .map((d) => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
       .filter((b) => {
         const ms = b.slotStart.toMillis();
+        const pingTime = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+        const hasFreshPing = pingTime && typeof pingTime === "number" && (freshNow - pingTime) < 5 * 60 * 1000;
         return (
           b.status === "paid" &&   // only confirmed-paid bookings
           !b.archived &&           // not archived by practitioner
           !b.inSession &&          // not already in a live session
-          ms >= freshStart &&      // within rolling window
-          ms <= freshEnd
+          // within rolling window OR has a fresh ping (actively waiting right now)
+          ((ms >= freshStart && ms <= freshEnd) || hasFreshPing)
         );
       });
     cb(rows);
@@ -703,6 +724,24 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
 /** Archive a booking (soft-delete from active list) */
 export async function archiveBooking(id: string) {
   await updateDoc(doc(db, "bookings", id), { archived: true });
+}
+
+/** Permanently delete a booking and its session subcollection */
+export async function deleteBookingPermanently(bookingId: string): Promise<void> {
+  // Delete session messages subcollection
+  try {
+    const msgsSnap = await getDocs(collection(db, "sessions", bookingId, "messages"));
+    await Promise.all(msgsSnap.docs.map(d => deleteDoc(d.ref)));
+  } catch { /* non-fatal */ }
+  // Delete session doc
+  try { await deleteDoc(doc(db, "sessions", bookingId)); } catch { /* non-fatal */ }
+  // Delete booking doc
+  await deleteDoc(doc(db, "bookings", bookingId));
+}
+
+/** Restore an archived booking back to active */
+export async function unarchiveBooking(id: string): Promise<void> {
+  await updateDoc(doc(db, "bookings", id), { archived: false });
 }
 
 /**

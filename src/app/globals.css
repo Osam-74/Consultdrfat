@@ -1780,6 +1780,10 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   70% { box-shadow: 0 0 0 10px rgba(14,138,122,0); }
   100% { box-shadow: 0 0 0 0 rgba(14,138,122,0); }
 }
+@keyframes pingBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 .resume-text {
   flex: 1;
   display: flex;
@@ -1966,10 +1970,10 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
 }
 .wr-pulse-dot {
-  width: 10px; height: 10px; border-radius: 50%;
+  width: 8px; height: 8px; border-radius: 50%;
   background: var(--teal);
-  box-shadow: 0 0 0 0 rgba(14,138,122,.5);
-  animation: ripple 1.5s infinite; flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(14,138,122,.4);
+  animation: ripple 2s infinite; flex-shrink: 0;
 }
 .wr-title { font-size: 14px; font-weight: 700; color: var(--navy); flex: 1; }
 .wr-count {

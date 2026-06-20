@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import {
   getSettings, saveSettings, getTemplates, saveTemplate, deleteTemplate,
   getExceptions, addException, deleteException, watchBookings, ensurePractitionerConfig,
-  archiveBooking, watchDiscountCodes,
+  archiveBooking, watchDiscountCodes, deleteBookingPermanently, unarchiveBooking,
 } from "@/lib/db";
 import type { DiscountCode } from "@/lib/db";
 import {
@@ -34,11 +34,10 @@ function calCells(base: Date): Date[] {
   return cells;
 }
 
-const BrandNav = ({ onSignOut, waitingCount, pingCount, onPingClick }: {
+const BrandNav = ({ onSignOut, waitingCount, pingCount }: {
   onSignOut: () => void;
   waitingCount: number;
   pingCount: number;
-  onPingClick: () => void;
 }) => (
   <nav className="nav" style={{borderBottom:"1px solid var(--line)",marginBottom:4}}>
     <Link href="/" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:10}} className="brand">
@@ -46,44 +45,52 @@ const BrandNav = ({ onSignOut, waitingCount, pingCount, onPingClick }: {
       <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
     </Link>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      {/* Waiting Room button with ping badge */}
-      <div style={{position:"relative",display:"flex",alignItems:"center",gap:6}}>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={onPingClick}
-          style={{
-            display:"flex",alignItems:"center",gap:6,
-            background: pingCount > 0 ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : undefined,
-            color: pingCount > 0 ? "#fff" : undefined,
-            border: pingCount > 0 ? "none" : undefined,
-            animation: pingCount > 0 ? "pulse 1.5s infinite" : undefined,
-          }}
-        >
-          🚪 Waiting Room
-          {waitingCount > 0 && (
-            <span style={{
-              background: pingCount > 0 ? "rgba(255,255,255,.25)" : "var(--teal)",
-              color: "#fff", borderRadius: 10, padding: "1px 7px",
-              fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: "center",
-            }}>{waitingCount}</span>
-          )}
-          {pingCount > 0 && (
-            <span style={{
-              background:"#ef4444", borderRadius:"50%", width:8, height:8,
-              display:"inline-block", boxShadow:"0 0 0 2px #fff",
-            }} />
-          )}
-        </button>
-      </div>
+      {/* Waiting Room button — links to dedicated waiting room page */}
+      <Link
+        href="/waiting-room"
+        style={{
+          textDecoration:"none",
+          display:"flex",alignItems:"center",gap:6,
+          padding:"6px 12px", borderRadius:8, fontSize:13, fontWeight:600,
+          background: pingCount > 0 ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : undefined,
+          color: pingCount > 0 ? "#fff" : "var(--navy)",
+          border: pingCount > 0 ? "none" : "1px solid var(--line)",
+          transition: "all .2s",
+        }}
+        className="btn btn-ghost btn-sm"
+      >
+        🚪 Waiting Room
+        {waitingCount > 0 && (
+          <span style={{
+            background: pingCount > 0 ? "rgba(255,255,255,.25)" : "var(--teal)",
+            color: "#fff", borderRadius: 10, padding: "1px 7px",
+            fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: "center",
+          }}>{waitingCount}</span>
+        )}
+        {pingCount > 0 && (
+          <span style={{
+            background:"#ef4444", borderRadius:"50%", width:8, height:8,
+            display:"inline-block", boxShadow:"0 0 0 2px #fff",
+            animation: "pingBlink 1s infinite",
+          }} />
+        )}
+      </Link>
       <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
     </div>
   </nav>
 );
 
 // ── Compact booking card with accordion expand ──────────────────────────────
-function BookingCard({ b, onArchive }: { b: Booking; onArchive: (id: string) => void }) {
+function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode }: {
+  b: Booking;
+  onArchive: (id: string) => void;
+  onPermanentDelete?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
+  filterMode?: "upcoming" | "past" | "archived";
+}) {
   const [open, setOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const d = b.slotStart.toDate();
   const end = b.slotEnd.toDate();
   const isPast = d < new Date();
@@ -119,12 +126,30 @@ function BookingCard({ b, onArchive }: { b: Booking; onArchive: (id: string) => 
           {b.discountCode && <div className="brow-detail-line">🏷 <span>{b.discountCode} ({b.discountPercent}% off)</span></div>}
           <div className="brow-detail-line">🗓 <span>{fmtDT(d)} — {end.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span></div>
           <div className="brow-detail-actions">
-            {b.status === "paid" && !b.archived && (
+            {b.status === "paid" && !b.archived && filterMode !== "past" && (
               <Link className="btn btn-sm btn-primary" href={`/session/?id=${b.id}&role=practitioner`}>
                 🚀 Start Session
               </Link>
             )}
-            {!b.archived && (
+            {!b.archived && filterMode !== "past" && (
+              <button className="btn btn-sm btn-ghost" style={{color:"var(--muted)"}} disabled={archiving}
+                onClick={async () => { setArchiving(true); await onArchive(b.id); }}>
+                {archiving ? "…" : "🗄 Archive"}
+              </button>
+            )}
+            {filterMode === "archived" && onUnarchive && (
+              <button className="btn btn-sm btn-ghost" style={{color:"var(--teal)"}} disabled={archiving}
+                onClick={async () => { setArchiving(true); await onUnarchive(b.id); }}>
+                {archiving ? "…" : "↩️ Restore"}
+              </button>
+            )}
+            {filterMode === "archived" && onPermanentDelete && (
+              <button className="btn btn-sm btn-ghost" style={{color:"#ef4444"}} disabled={deleting}
+                onClick={async () => { setDeleting(true); await onPermanentDelete(b.id); }}>
+                {deleting ? "…" : "🗑 Delete permanently"}
+              </button>
+            )}
+            {filterMode === "past" && !b.archived && (
               <button className="btn btn-sm btn-ghost" style={{color:"var(--muted)"}} disabled={archiving}
                 onClick={async () => { setArchiving(true); await onArchive(b.id); }}>
                 {archiving ? "…" : "🗄 Archive"}
@@ -153,6 +178,7 @@ export default function AdminPage() {
   const [saving, setSaving]         = useState(false);
   // Horizontal calendar date picker for bookings tab
   const [calSelectedDate, setCalSelectedDate] = useState<string>(ymd(new Date()));
+  const [bookingsFilter, setBookingsFilter] = useState<"upcoming"|"past"|"archived">("upcoming");
   const [calScrollStart, setCalScrollStart] = useState<string>(() => {
     const d = new Date(); d.setDate(d.getDate() - 3);
     return ymd(d);
@@ -218,13 +244,20 @@ export default function AdminPage() {
         }
       });
       setSessionStatuses(statuses);
-      // Derive waiting room from same snapshot — paid, not archived, not in session, within 2h window
+      // Derive waiting room from same snapshot — paid, not archived, not in session,
+      // within 2h window. ALSO include pinged clients (clientPing within last 5 min)
+      // even if they're slightly outside the window — they're actively waiting.
       const freshNow = Date.now();
       const windowStart = freshNow - 30 * 60 * 1000;
       const windowEnd   = freshNow + 2 * 60 * 60 * 1000;
       const waiting = rows.filter(b => {
         const ms = b.slotStart.toMillis();
-        return b.status === "paid" && !b.archived && !b.inSession && ms >= windowStart && ms <= windowEnd;
+        const pingTime = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+        const hasFreshPing = pingTime && typeof pingTime === "number" && (freshNow - pingTime) < 5 * 60 * 1000;
+        // Show if: paid, not archived, not already in a live session, and either
+        // within the time window OR has a fresh ping (actively waiting right now)
+        return b.status === "paid" && !b.archived && !b.inSession &&
+          (ms >= windowStart && ms <= windowEnd || hasFreshPing);
       });
       setWaitingRoom(waiting);
       const ws: Record<string, "idle" | "live" | "complete" | "none"> = {};
@@ -252,6 +285,13 @@ export default function AdminPage() {
 
   const handleArchive = async (id: string) => {
     await archiveBooking(id);
+  };
+  const handlePermanentDelete = async (id: string) => {
+    if (!confirm("Permanently delete this booking? This cannot be undone.")) return;
+    await deleteBookingPermanently(id);
+  };
+  const handleUnarchive = async (id: string) => {
+    await unarchiveBooking(id);
   };
 
   const windowsByDate = useMemo(() => {
@@ -353,7 +393,8 @@ export default function AdminPage() {
   const upcomingThisWeek = bookingsThisWeek;
   // Completed count = archived paid bookings + completed-but-not-archived
   const completedCount = bookings.filter(b => b.archived && b.status === "paid").length
-    + completedNotArchived.length;
+    + completedNotArchived.length
+    + bookings.filter(b => b.status === "paid" && b.completedAt && !b.archived && (sessionStatuses[b.id] ?? "none") !== "complete").length;
 
   // Earnings from ALL paid bookings — never reduced by archiving
   const totalEarnings = allPaid.reduce((a, b) => a + b.amountNGN, 0);
@@ -361,8 +402,12 @@ export default function AdminPage() {
   // ── Consultation hours: total duration of all completed sessions ──
   // Uses completedAt - session start (slotStart) for each completed session.
   // Falls back to sessionLengthMin * 60s if completedAt is missing.
+  // Includes both active and archived completed sessions.
   const consultationHours = (() => {
-    const completed = bookings.filter(b => b.status === "paid" && (sessionStatuses[b.id] ?? "none") === "complete");
+    const completed = bookings.filter(b =>
+      b.status === "paid" &&
+      ((sessionStatuses[b.id] ?? "none") === "complete" || (b.archived && b.completedAt))
+    );
     let totalSeconds = 0;
     completed.forEach(b => {
       const startMs = b.slotStart.toMillis();
@@ -370,7 +415,9 @@ export default function AdminPage() {
       const durSec = Math.max(0, Math.round((endMs - startMs) / 1000));
       totalSeconds += durSec;
     });
-    return Math.floor(totalSeconds / 3600);
+    // Return hours with 1 decimal place if less than 10 hours
+    const hrs = totalSeconds / 3600;
+    return hrs < 10 ? Math.round(hrs * 10) / 10 : Math.floor(hrs);
   })();
 
   // ── Active patients: unique clientIds who have made bookings ──
@@ -430,7 +477,7 @@ export default function AdminPage() {
   return (
     <div style={{minHeight:"100vh",background:"var(--paper)"}}>
       <div className="wrap">
-        <BrandNav onSignOut={signOut} waitingCount={waitingRoom.length} pingCount={pingCount} onPingClick={() => { setTab("bookings"); setWaitingRoomOpen(true); }} />
+        <BrandNav onSignOut={signOut} waitingCount={waitingRoom.length} pingCount={pingCount} />
 
         {/* ── Ping notification banner ── */}
         {pingNotification && (
@@ -479,24 +526,30 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Row 2: 4 stats in one row with light teal shades */}
+          {/* Row 2: 3 stats in one row — icon left, text left (horizontal layout) */}
           {/* Completed */}
-          <div className="stat-card" style={{background:"#E8F6F4",borderColor:"#BFE7E1"}}>
-            <div className="stat-icon">✅</div>
-            <div className="stat-val" style={{color:"var(--navy)"}}>{completedCount}</div>
-            <div className="stat-lbl">Completed</div>
+          <div className="stat-card" style={{background:"#E8F6F4",borderColor:"#BFE7E1",display:"flex",alignItems:"center",gap:12}}>
+            <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>✅</div>
+            <div style={{minWidth:0}}>
+              <div className="stat-val" style={{color:"var(--navy)"}}>{completedCount}</div>
+              <div className="stat-lbl">Completed</div>
+            </div>
           </div>
           {/* Consultation Hours — total duration of all completed sessions */}
-          <div className="stat-card" style={{background:"#E0F2F0",borderColor:"#A8DDD6"}}>
-            <div className="stat-icon">⏱️</div>
-            <div className="stat-val" style={{color:"var(--navy)"}}>{consultationHours}</div>
-            <div className="stat-lbl">{consultationHours === 1 ? "Consultation Hour" : "Consultation Hours"}</div>
+          <div className="stat-card" style={{background:"#E0F2F0",borderColor:"#A8DDD6",display:"flex",alignItems:"center",gap:12}}>
+            <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>⏱️</div>
+            <div style={{minWidth:0}}>
+              <div className="stat-val" style={{color:"var(--navy)"}}>{consultationHours}</div>
+              <div className="stat-lbl">{consultationHours === 1 ? "Consultation Hour" : "Consultation Hours"}</div>
+            </div>
           </div>
           {/* Total Active Patients — unique clients who have made bookings */}
-          <div className="stat-card" style={{background:"#D6EEE9",borderColor:"#8FD0C6"}}>
-            <div className="stat-icon">👥</div>
-            <div className="stat-val" style={{color:"var(--navy)"}}>{activePatients}</div>
-            <div className="stat-lbl">Active Patients</div>
+          <div className="stat-card" style={{background:"#D6EEE9",borderColor:"#8FD0C6",display:"flex",alignItems:"center",gap:12}}>
+            <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>👥</div>
+            <div style={{minWidth:0}}>
+              <div className="stat-val" style={{color:"var(--navy)"}}>{activePatients}</div>
+              <div className="stat-lbl">Active Patients</div>
+            </div>
           </div>
         </div>
 
@@ -715,7 +768,7 @@ export default function AdminPage() {
               <div className="card-header" style={{marginBottom:16}}>
                 <div>
                   <h3>📋 Bookings</h3>
-                  <p className="card-sub">Select a date to view sessions</p>
+                  <p className="card-sub">View upcoming, past, and archived sessions</p>
                 </div>
               </div>
 
@@ -756,9 +809,9 @@ export default function AdminPage() {
                         key={ds}
                         onClick={() => setCalSelectedDate(ds)}
                         style={{
-                          flexShrink:0, width:64, paddingTop:10, paddingBottom:10,
-                          borderRadius:12, border:"2px solid", cursor:"pointer",
-                          display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+                          flexShrink:0, width:44, paddingTop:7, paddingBottom:7,
+                          borderRadius:10, border:"2px solid", cursor:"pointer",
+                          display:"flex", flexDirection:"column", alignItems:"center", gap:1,
                           scrollSnapAlign:"start",
                           borderColor: isSel ? "var(--teal)" : isToday ? "rgba(14,138,122,.3)" : "#e8edf3",
                           background: isSel ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : isToday ? "#f0fdfa" : "#fff",
@@ -766,13 +819,13 @@ export default function AdminPage() {
                           transition:"all .2s",
                         }}
                       >
-                        <span style={{fontSize:10,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
+                        <span style={{fontSize:8,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
                           {DOW_SHORT[d.getDay()]}
                         </span>
-                        <span style={{fontSize:20,fontWeight:800}}>
+                        <span style={{fontSize:15,fontWeight:800}}>
                           {d.getDate()}
                         </span>
-                        <span style={{fontSize:9,opacity:.8}}>
+                        <span style={{fontSize:7,opacity:.8}}>
                           {MON_SHORT[d.getMonth()]}
                         </span>
                         {/* Booking indicator dots */}
@@ -808,44 +861,205 @@ export default function AdminPage() {
                 >›</button>
               </div>
 
-              {/* Selected date bookings */}
-              {(() => {
-                const dayBookings = nonArchived
-                  .filter(b => b.status === "paid" && ymd(b.slotStart.toDate()) === calSelectedDate)
-                  .sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis());
+              {/* ── Filter buttons ── */}
+              <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+                {(["upcoming","past","archived"] as const).map(f => (
+                  <button
+                    key={f}
+                    className={"filter-pill" + (bookingsFilter === f ? " active" : "")}
+                    onClick={() => setBookingsFilter(f)}
+                  >
+                    {f === "upcoming" ? "📅 Upcoming" : f === "past" ? "📜 Past Sessions" : "🗄 Archived"}
+                  </button>
+                ))}
+              </div>
 
-                const selDateLabel = new Date(calSelectedDate + "T00:00:00").toLocaleDateString("en-NG", {
-                  weekday: "long", day: "numeric", month: "long", year: "numeric"
-                });
+              {/* ── Upcoming: calendar + day bookings ── */}
+              {bookingsFilter === "upcoming" && (
+                <>
+                  {/* Horizontal scrollable calendar strip */}
+                  <div style={{
+                    display:"flex", alignItems:"center", gap:6, marginBottom:16,
+                    overflow:"hidden",
+                  }}>
+                    <button
+                      className="cal-nav-btn"
+                      onClick={() => {
+                        const d = new Date(calScrollStart + "T00:00:00");
+                        d.setDate(d.getDate() - 7);
+                        setCalScrollStart(ymd(d));
+                      }}
+                      style={{ flexShrink:0 }}
+                      aria-label="Previous week"
+                    >‹</button>
+                    <div
+                      ref={calStripRef}
+                      style={{
+                        display:"flex", gap:8, overflowX:"auto", scrollSnapType:"x mandatory",
+                        flex:1, paddingBottom:4, scrollbarWidth:"thin",
+                        WebkitOverflowScrolling:"touch",
+                      }}
+                    >
+                      {calDays.map(d => {
+                        const ds = ymd(d);
+                        const isToday = ds === ymd(new Date());
+                        const isSel = ds === calSelectedDate;
+                        const dayBookings = nonArchived.filter(b =>
+                          b.status === "paid" && ymd(b.slotStart.toDate()) === ds
+                        );
+                        const hasBookings = dayBookings.length > 0;
+                        const hasCompleted = dayBookings.some(b => (sessionStatuses[b.id] ?? "none") === "complete");
+                        return (
+                          <button
+                            key={ds}
+                            onClick={() => setCalSelectedDate(ds)}
+                            style={{
+                              flexShrink:0, width:44, paddingTop:7, paddingBottom:7,
+                              borderRadius:10, border:"2px solid", cursor:"pointer",
+                              display:"flex", flexDirection:"column", alignItems:"center", gap:1,
+                              scrollSnapAlign:"start",
+                              borderColor: isSel ? "var(--teal)" : isToday ? "rgba(14,138,122,.3)" : "#e8edf3",
+                              background: isSel ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : isToday ? "#f0fdfa" : "#fff",
+                              color: isSel ? "#fff" : "var(--navy)",
+                              transition:"all .2s",
+                            }}
+                          >
+                            <span style={{fontSize:8,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
+                              {DOW_SHORT[d.getDay()]}
+                            </span>
+                            <span style={{fontSize:15,fontWeight:800}}>
+                              {d.getDate()}
+                            </span>
+                            <span style={{fontSize:7,opacity:.8}}>
+                              {MON_SHORT[d.getMonth()]}
+                            </span>
+                            <span style={{display:"flex",gap:3,marginTop:2,height:6}}>
+                              {hasBookings && (
+                                <span style={{
+                                  width:6, height:6, borderRadius:"50%",
+                                  background: isSel ? "#fff" : hasCompleted ? "#0E8A7A" : "#0B2B4A",
+                                }} />
+                              )}
+                              {hasBookings && dayBookings.length > 1 && (
+                                <span style={{
+                                  fontSize:8, fontWeight:700, lineHeight:"6px",
+                                  color: isSel ? "rgba(255,255,255,.8)" : "var(--muted)",
+                                }}>
+                                  {dayBookings.length}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      className="cal-nav-btn"
+                      onClick={() => {
+                        const d = new Date(calScrollStart + "T00:00:00");
+                        d.setDate(d.getDate() + 7);
+                        setCalScrollStart(ymd(d));
+                      }}
+                      style={{ flexShrink:0 }}
+                      aria-label="Next week"
+                    >›</button>
+                  </div>
 
-                if (dayBookings.length === 0) {
+                  {(() => {
+                    const dayBookings = nonArchived
+                      .filter(b => b.status === "paid" && ymd(b.slotStart.toDate()) === calSelectedDate)
+                      .sort((a, b) => a.slotStart.toMillis() - b.slotStart.toMillis());
+
+                    const selDateLabel = new Date(calSelectedDate + "T00:00:00").toLocaleDateString("en-NG", {
+                      weekday: "long", day: "numeric", month: "long", year: "numeric"
+                    });
+
+                    if (dayBookings.length === 0) {
+                      return (
+                        <div className="empty-state">
+                          <div style={{fontSize:36,marginBottom:8}}>📅</div>
+                          <p style={{color:"var(--muted)"}}>No sessions on {selDateLabel}</p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <>
+                        <div style={{
+                          fontSize:13, fontWeight:700, color:"var(--navy)", marginBottom:12,
+                          padding:"8px 14px", background:"#f8fafc", borderRadius:8,
+                          display:"flex", alignItems:"center", justifyContent:"space-between",
+                        }}>
+                          <span>{selDateLabel}</span>
+                          <span style={{fontSize:12,color:"var(--muted)"}}>
+                            {dayBookings.length} session{dayBookings.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        <div className="booking-compact-list">
+                          {dayBookings.map(b => (
+                            <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="upcoming" />
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+
+              {/* ── Past Sessions ── */}
+              {bookingsFilter === "past" && (
+                (() => {
+                  const pastBookings = nonArchived
+                    .filter(b => b.status === "paid" &&
+                      (b.slotStart.toDate() < new Date() || (sessionStatuses[b.id] ?? "none") === "complete"))
+                    .sort((a, b) => b.slotStart.toMillis() - a.slotStart.toMillis());
+
+                  if (pastBookings.length === 0) {
+                    return (
+                      <div className="empty-state">
+                        <div style={{fontSize:36,marginBottom:8}}>📜</div>
+                        <p style={{color:"var(--muted)"}}>No past sessions yet.</p>
+                      </div>
+                    );
+                  }
                   return (
-                    <div className="empty-state">
-                      <div style={{fontSize:36,marginBottom:8}}>📅</div>
-                      <p style={{color:"var(--muted)"}}>No sessions on {selDateLabel}</p>
-                    </div>
-                  );
-                }
-                return (
-                  <>
-                    <div style={{
-                      fontSize:13, fontWeight:700, color:"var(--navy)", marginBottom:12,
-                      padding:"8px 14px", background:"#f8fafc", borderRadius:8,
-                      display:"flex", alignItems:"center", justifyContent:"space-between",
-                    }}>
-                      <span>{selDateLabel}</span>
-                      <span style={{fontSize:12,color:"var(--muted)"}}>
-                        {dayBookings.length} session{dayBookings.length !== 1 ? "s" : ""}
-                      </span>
-                    </div>
                     <div className="booking-compact-list">
-                      {dayBookings.map(b => (
-                        <BookingCard key={b.id} b={b} onArchive={handleArchive} />
+                      {pastBookings.map(b => (
+                        <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="past" />
                       ))}
                     </div>
-                  </>
-                );
-              })()}
+                  );
+                })()
+              )}
+
+              {/* ── Archived Sessions ── */}
+              {bookingsFilter === "archived" && (
+                (() => {
+                  const archivedBookings = bookings
+                    .filter(b => b.archived)
+                    .sort((a, b) => b.slotStart.toMillis() - a.slotStart.toMillis());
+
+                  if (archivedBookings.length === 0) {
+                    return (
+                      <div className="empty-state">
+                        <div style={{fontSize:36,marginBottom:8}}>🗄</div>
+                        <p style={{color:"var(--muted)"}}>No archived sessions. Archive a session to tidy up your active list.</p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="booking-compact-list">
+                      {archivedBookings.map(b => (
+                        <BookingCard key={b.id} b={b}
+                          onArchive={handleArchive}
+                          onPermanentDelete={handlePermanentDelete}
+                          onUnarchive={handleUnarchive}
+                          filterMode="archived"
+                        />
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
             </div>
           </>
         )}
