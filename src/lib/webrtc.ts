@@ -24,6 +24,22 @@ export async function getIceServers(): Promise<RTCIceServer[]> {
     { urls: "stun:stun.cloudflare.com:3478" },
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    // Free TURN servers from OpenRelay (fallback for restrictive NATs/carrier networks)
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ];
   if (!API_BASE) return fallback;
   try {
@@ -80,12 +96,24 @@ export async function startVoice(opts: {
   };
 
   // ── Connection state logging ────────────────────────────────────────────
+  let restartAttempted = false;
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
     console.log("[WebRTC] connection:", s);
     if (onState) onState(s);
     if (s === "failed") {
-      console.warn("[WebRTC] connection failed — ICE may have been blocked. Check TURN config.");
+      console.warn("[WebRTC] connection failed — attempting ICE restart...");
+      if (!restartAttempted && pc.currentLocalDescription) {
+        restartAttempted = true;
+        try {
+          if (caller) {
+            pc.createOffer({ iceRestart: true, offerToReceiveAudio: true })
+              .then((offer) => pc.setLocalDescription(offer))
+              .then(() => setDoc(callRef, { offer: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } }))
+              .catch((e) => console.warn("[WebRTC] ICE restart failed:", e));
+          }
+        } catch (e) { console.warn("[WebRTC] ICE restart error:", e); }
+      }
     }
   };
   pc.onicegatheringstatechange = () =>

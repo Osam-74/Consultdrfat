@@ -7,7 +7,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getClientBookings, watchSession } from "@/lib/db";
+import { getClientBookings } from "@/lib/db";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function GlobalShell({ children }: { children: React.ReactNode }) {
   const { user, role } = useAuth();
@@ -15,7 +17,6 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [bubbleExpanded, setBubbleExpanded] = useState(true);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sessionUnsubRef = useRef<(() => void) | null>(null);
 
   // Hide bubble on session page — user is already there
   const onSessionPage = pathname?.startsWith("/session");
@@ -24,7 +25,6 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!user || role !== "client") {
       setActiveSessionId(null);
-      if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
       return;
     }
 
@@ -36,30 +36,34 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
         if (cancelled) return;
 
         // Unsubscribe any previous session watcher
-        if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
-
+  
         // Find the most recent paid non-archived booking
         const active = bookings.find((b) => b.status === "paid" && !b.archived);
         if (!active) { setActiveSessionId(null); return; }
 
         // Use cached sessionStatus on the booking doc first (no extra read).
-        // Only open a real-time watchSession listener if the booking status is ambiguous.
         const cachedStatus = (active as unknown as Record<string, unknown>).sessionStatus as string | undefined;
         if (cachedStatus === "complete") { setActiveSessionId(null); return; }
-        if (cachedStatus === "live")     { setActiveSessionId(active.id); return; }
+        // For "live", "idle", or unknown — show the bubble. The client can return
+        // to the session room regardless of whether it's started yet.
+        if (cachedStatus === "live" || cachedStatus === "idle" || !cachedStatus) {
+          setActiveSessionId(active.id);
+        }
 
-        // Ambiguous — open a one-time session doc watch, cancel after first result
-        const unsub = watchSession(active.id, (sess) => {
-          if (!sess || sess.status === "complete" || sess.status === "idle") {
-            setActiveSessionId(null);
-          } else if (sess.status === "live") {
+        // One-time getDoc to check if session is complete (avoids a permanent listener)
+        if (!cachedStatus) {
+          try {
+            const sessSnap = await getDoc(doc(db, "sessions", active.id));
+            if (sessSnap.exists()) {
+              const sessData = sessSnap.data() as { status?: string };
+              if (sessData.status === "complete") {
+                setActiveSessionId(null);
+                return;
+              }
+            }
             setActiveSessionId(active.id);
-          }
-          // Unsubscribe after first read to avoid a permanent listener
-          unsub();
-          if (sessionUnsubRef.current === unsub) sessionUnsubRef.current = null;
-        });
-        sessionUnsubRef.current = unsub;
+          } catch { /* non-fatal — keep the bubble visible */ }
+        }
       } catch {
         setActiveSessionId(null);
       }
@@ -72,7 +76,6 @@ export default function GlobalShell({ children }: { children: React.ReactNode })
     return () => {
       cancelled = true;
       clearInterval(iv);
-      if (sessionUnsubRef.current) { sessionUnsubRef.current(); sessionUnsubRef.current = null; }
     };
   }, [user, role]);
 

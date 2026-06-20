@@ -24,7 +24,7 @@ export interface Env {
   FIREBASE_PROJECT_ID: string; // e.g. consultdrfat
   FIREBASE_SA_JSON: string;    // full service-account JSON string
   SESSION_FILES: R2Bucket;     // R2 bucket for session file uploads
-  R2_PUBLIC_BASE: string;      // e.g. https://pub-xxxx.r2.dev (set via wrangler secret)
+  R2_PUBLIC_BASE?: string;     // optional — if not set, files served via /files/ endpoint
 }
 
 // ─── CORS helpers ───────────────────────────────────────────────────────────
@@ -282,12 +282,7 @@ export default {
           error: "R2 bucket binding missing. In Cloudflare dashboard: Worker → Settings → Bindings → Add R2 bucket, binding name = SESSION_FILES, bucket = consultdrfat-session-files. Then redeploy."
         }, env, 503);
       }
-      if (!env.R2_PUBLIC_BASE) {
-        return json({
-          ok: false,
-          error: "R2_PUBLIC_BASE not set. Run: wrangler secret put R2_PUBLIC_BASE → paste your bucket public URL (e.g. https://pub-xxxx.r2.dev). Or set it in Cloudflare dashboard → Worker → Settings → Variables."
-        }, env, 503);
-      }
+      // R2_PUBLIC_BASE is optional — if not set, we serve files via /files/ endpoint
 
       let formData: FormData;
       try {
@@ -322,8 +317,29 @@ export default {
         },
       });
 
-      const publicUrl = `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`;
+      // Use R2_PUBLIC_BASE if available, otherwise serve via the worker itself
+      const publicUrl = env.R2_PUBLIC_BASE
+        ? `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`
+        : `${url.origin}/files/${key}`;
       return json({ ok: true, url: publicUrl }, env, 200);
+    }
+
+    // ── Serve R2 files directly (fallback when R2_PUBLIC_BASE is not set) ──────
+    // GET /files/session-files/{bookingId}/{filename}
+    if (url.pathname.startsWith("/files/") && req.method === "GET") {
+      const key = url.pathname.slice(7); // strip "/files/"
+      if (!env.SESSION_FILES) {
+        return json({ ok: false, error: "R2 bucket not configured" }, env, 503);
+      }
+      const object = await env.SESSION_FILES.get(key);
+      if (!object) {
+        return new Response("File not found", { status: 404, headers: cors(env.ALLOW_ORIGIN) });
+      }
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Cache-Control", "public, max-age=86400");
+      return new Response(object.body, { headers });
     }
 
     return new Response("Not found", { status: 404, headers: cors(env.ALLOW_ORIGIN) });

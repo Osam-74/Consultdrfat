@@ -6,7 +6,8 @@ import {
   watchSession, watchMessages, ensureSession, startSession, completeSession, clearInSession,
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
-  getBookingById, pingPresence,
+  getBookingById, pingPresence, getNextClientBooking,
+  clientLeftSession,
 } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, VoiceHandle } from "@/lib/webrtc";
@@ -61,6 +62,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const practFileRef = useRef<HTMLInputElement>(null);
   const [practUploading, setPractUploading] = useState(false);
 
+  // Client leave confirmation dialog
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
   const msgsRef = useRef<HTMLDivElement>(null);
   const voiceRef = useRef<VoiceHandle | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -80,7 +84,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     return () => { u1(); u2(); };
   }, [bookingId]);
 
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t); }, []);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
   // ── Presence heartbeat — ping every 10s regardless of session state ──
   // Presence heartbeat — stop pinging when session is complete (saves quota).
@@ -124,8 +128,20 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       setClientUid(b.clientId ?? "");
     }).catch(() => {});
 
-    // Next-client lookup removed — was doing 2 extra Firestore reads per session.
-    // Practitioner can see upcoming clients on their dashboard instead.
+    // One-time fetch — narrow query (max 20 docs in 8h window) instead of scanning ALL paid bookings.
+    // This saves a massive amount of Firestore reads.
+    getBookingById(bookingId).then(async (bk) => {
+      if (!bk) return;
+      try {
+        const currentMs = bk.slotStart.toMillis();
+        const next = await getNextClientBooking(bookingId, currentMs);
+        if (next) {
+          const label = new Date(next.slotStart.toMillis()).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+          setNextClientLabel(label);
+          setNextClient(bookingId, label);
+        }
+      } catch { /* non-fatal */ }
+    }).catch(() => {});
     return () => {};
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, isPract]);
@@ -479,14 +495,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                     <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
                   </button>}
               <button className="ctl danger"
-                onClick={async () => {
+                onClick={() => {
                   if (isPract) {
-                    await completeSession(bookingId);
+                    completeSession(bookingId);
                   } else {
-                    // Client leaving: just clear inSession and go home.
-                    // Don't end the session for the practitioner.
-                    await clearInSession(bookingId).catch(() => {});
-                    window.location.href = "/";
+                    setShowLeaveConfirm(true);
                   }
                 }}
                 disabled={!sessionLive && !isPract}
@@ -698,6 +711,31 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           </div>
         )}
       </div>
+
+      {/* ── Client leave confirmation ── */}
+      {showLeaveConfirm && !isPract && (
+        <div className="overlay" style={{ zIndex: 100 }}>
+          <div className="ov-icon">🚪</div>
+          <h3>Leave session?</h3>
+          <p>Are you sure you want to leave? The practitioner will be notified.</p>
+          <div className="ov-actions">
+            <button className="obtn ghost" onClick={() => setShowLeaveConfirm(false)}>
+              Stay in session
+            </button>
+            <button className="obtn red" onClick={async () => {
+              setShowLeaveConfirm(false);
+              await clientLeftSession(bookingId).catch(() => {});
+              voiceRef.current?.stop().catch(() => {});
+              voiceRef.current = null;
+              localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+              localStreamRef.current = null;
+              window.location.href = "/";
+            }}>
+              Yes, leave session
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 

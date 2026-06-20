@@ -66,6 +66,16 @@ service cloud.firestore {
       }
     }
 
+    // ── Discount codes ──────────────────────────────────────────────────────────
+    match /discountCodes/{id} {
+      allow read:   if isPractitioner()
+        || (signedIn() && resource.data.createdForUid == request.auth.uid);
+      allow create: if isPractitioner();
+      allow update: if isPractitioner()
+        || (signedIn() && resource.data.createdForUid == request.auth.uid);
+      allow delete: if isPractitioner();
+    }
+
     // ── Mail queue ───────────────────────────────────────────────────────────
     match /mail/{id} { allow create: if signedIn(); allow read, update, delete: if false; }
   }
