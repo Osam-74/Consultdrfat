@@ -10,7 +10,9 @@ import {
   clientLeftSession,
   notifyPractitioner,
   requestExtension, clearExtRequest,
+  watchClientNotes, addClientNote,
 } from "@/lib/db";
+import type { ClientNote } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
 import { startVoice, VoiceHandle } from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
@@ -54,6 +56,12 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [clientEmail, setClientEmail] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientUid, setClientUid] = useState("");
+
+  // ── Practitioner notes panel ──
+  const [showNotes, setShowNotes] = useState(false);
+  const [notes, setNotes] = useState<ClientNote[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
 
   // Presence — track who is online
   const [otherOnline, setOtherOnline] = useState(false);
@@ -164,6 +172,30 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     return () => {};
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, isPract]);
+
+  // ── Practitioner notes subscription ──
+  // Watch notes for the client in real-time (only when we have the clientUid)
+  useEffect(() => {
+    if (!isPract || !clientUid) return;
+    const unsub = watchClientNotes(clientUid, setNotes);
+    return () => unsub();
+  }, [isPract, clientUid]);
+
+  // ── Save note handler ──
+  const handleSaveNote = async () => {
+    const text = noteDraft.trim();
+    if (!text || !clientUid) return;
+    setNoteSaving(true);
+    try {
+      await addClientNote(clientUid, text, bookingId);
+      setNoteDraft("");
+    } catch (err) {
+      console.error("Save note error:", err);
+      alert("Could not save note. Please try again.");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
 
   // ── Practitioner file upload handler ──
   const handlePractFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -413,9 +445,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       if (isPract) {
         window.location.href = "/p-dfta";
       } else {
-        window.location.href = "/";
+        window.location.href = "/?session=complete";
       }
-    }, 3500);
+    }, 4500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status]);
@@ -491,12 +523,37 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Show redirect screen when complete
   if (session.status === "complete") {
     return (
-      <div className="room-bg" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+      <div className="room-bg" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 20, textAlign: "center" }}>
         <div style={{ fontSize: 52 }}>✅</div>
         <h2 style={{ color: "#fff", margin: 0 }}>Session complete</h2>
-        <p style={{ color: "rgba(255,255,255,.6)", margin: 0, fontSize: 15 }}>
-          {isPract ? "Returning to your dashboard…" : "Returning to home…"}
-        </p>
+        {isPract ? (
+          <p style={{ color: "rgba(255,255,255,.6)", margin: 0, fontSize: 15 }}>
+            Returning to your dashboard…
+          </p>
+        ) : (
+          <>
+            <p style={{ color: "rgba(255,255,255,.7)", margin: 0, fontSize: 16, maxWidth: 320, lineHeight: 1.5 }}>
+              Thank you for your session! We hope it was helpful.
+            </p>
+            <p style={{ color: "rgba(255,255,255,.5)", margin: 0, fontSize: 14 }}>
+              You can book your next appointment anytime.
+            </p>
+            <Link href="/book" style={{
+              marginTop: 8, padding: "12px 28px", borderRadius: 12,
+              background: "var(--teal)", color: "#fff", fontWeight: 700,
+              fontSize: 15, textDecoration: "none",
+              display: "inline-flex", alignItems: "center", gap: 8,
+            }}>
+              📅 Book Another Session
+            </Link>
+            <Link href="/" style={{
+              marginTop: 4, color: "rgba(255,255,255,.5)", fontSize: 13,
+              textDecoration: "none",
+            }}>
+              ← Back to Home
+            </Link>
+          </>
+        )}
         <div style={{ width: 200, height: 4, background: "rgba(255,255,255,.15)", borderRadius: 99, overflow: "hidden", marginTop: 8 }}>
           <div style={{ height: "100%", background: "var(--teal)", borderRadius: 99, animation: "fillBar 3.2s linear forwards" }} />
         </div>
@@ -886,6 +943,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </div>
             )}
 
+            {/* ── Practitioner Notes button + slide-in panel ── */}
+            <button
+              className={"dbtn icon-only" + (showNotes ? " active" : "")}
+              onClick={() => setShowNotes(!showNotes)}
+              title="View and add session notes for this client"
+              style={showNotes ? { background: "var(--teal)", color: "#fff" } : {}}
+            >
+              📝
+            </button>
+
             {/* Practitioner file share button */}
             {sessionLive && (
               <>
@@ -949,6 +1016,109 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             }}>
               Yes, leave session
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Practitioner Notes slide-in panel ── */}
+      {isPract && showNotes && (
+        <div className="notes-panel-overlay" onClick={() => setShowNotes(false)}>
+          <div className="notes-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="notes-panel-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>📝</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "var(--navy)" }}>
+                    Session Notes
+                  </div>
+                  {clientName && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      {clientName}{clientEmail ? ` · ${clientEmail}` : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNotes(false)}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: 20, color: "var(--muted)", padding: 0,
+                }}
+                title="Close notes"
+              >×</button>
+            </div>
+
+            {/* Add new note */}
+            <div className="notes-add">
+              <textarea
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="Write a note about this client or session…"
+                style={{
+                  width: "100%", minHeight: 60, maxHeight: 120,
+                  border: "1.5px solid var(--line)", borderRadius: 10,
+                  padding: "10px 12px", fontSize: 13, fontFamily: "inherit",
+                  resize: "vertical", outline: "none", background: "var(--paper)",
+                  boxSizing: "border-box",
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleSaveNote();
+                  }
+                }}
+              />
+              <button
+                onClick={handleSaveNote}
+                disabled={!noteDraft.trim() || noteSaving || !clientUid}
+                style={{
+                  marginTop: 8, padding: "8px 16px", borderRadius: 10,
+                  border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13,
+                  background: (!noteDraft.trim() || noteSaving || !clientUid) ? "var(--line)" : "var(--teal)",
+                  color: (!noteDraft.trim() || noteSaving || !clientUid) ? "var(--muted)" : "#fff",
+                  transition: "all .15s",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {noteSaving ? "Saving…" : "+ Add note"}
+              </button>
+              {!clientUid && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  Waiting for client data…
+                </div>
+              )}
+            </div>
+
+            {/* Past notes — scrollable list */}
+            <div className="notes-list">
+              {notes.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--muted)", fontSize: 13 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🗒️</div>
+                  No notes yet for this client.
+                  <br />
+                  Notes you write here will also appear on the client detail page.
+                </div>
+              ) : (
+                notes.map((note) => (
+                  <div key={note.id} className="note-card">
+                    <div className="note-text">{note.text}</div>
+                    <div className="note-meta">
+                      {new Date(note.createdAt.toMillis()).toLocaleDateString("en-NG", {
+                        day: "numeric", month: "short", year: "numeric",
+                      })} ·{" "}
+                      {new Date(note.createdAt.toMillis()).toLocaleTimeString("en-NG", {
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                      {note.bookingId && note.bookingId === bookingId && (
+                        <span style={{ marginLeft: 6, color: "var(--teal)", fontWeight: 600 }}>
+                          · this session
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

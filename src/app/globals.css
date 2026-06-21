@@ -1062,7 +1062,20 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .orb { font-size: 18px; }
   .controls { gap: 8px; }
   .ctl { padding: 8px 14px; font-size: 12.5px; }
-  .chat { height: 220px; }
+  .chat { height: 220px; padding-bottom: 0; }
+  .composer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+    padding: 10px 12px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  /* Add padding to chat msgs so last message isn't hidden behind fixed composer */
+  .msgs { padding-bottom: 60px; }
   .dock { padding: 10px 14px; gap: 8px; }
   .dbtn { padding: 6px 12px; font-size: 12px; }
   .overlay { padding: 22px 16px; border-radius: 0; }
@@ -1087,6 +1100,80 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .hero-trust { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .cta-band { padding: 26px 14px; }
   .btn-lg { padding: 14px 22px; font-size: 15px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   NOTES PANEL — Practitioner slide-in notes
+═══════════════════════════════════════════════════════ */
+.notes-panel-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 200;
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn .2s ease;
+}
+.notes-panel {
+  width: 100%;
+  max-width: 420px;
+  height: 100%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight .25s ease;
+  box-shadow: -4px 0 24px rgba(0,0,0,.15);
+}
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.notes-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.notes-add {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.notes-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+}
+.note-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.note-card .note-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.note-card .note-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1776,9 +1863,14 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   flex-shrink: 0;
 }
 @keyframes ripple {
-  0% { box-shadow: 0 0 0 0 rgba(14,138,122,.6); }
-  70% { box-shadow: 0 0 0 10px rgba(14,138,122,0); }
-  100% { box-shadow: 0 0 0 0 rgba(14,138,122,0); }
+  0% { box-shadow: 0 0 0 0 rgba(14,138,122,.6); transform: scale(1); }
+  50% { box-shadow: 0 0 0 8px rgba(14,138,122,.3); transform: scale(1.15); }
+  70% { box-shadow: 0 0 0 12px rgba(14,138,122,0); transform: scale(1.1); }
+  100% { box-shadow: 0 0 0 0 rgba(14,138,122,0); transform: scale(1); }
+}
+@keyframes pulseFlash {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,.6); }
+  50% { transform: scale(1.3); box-shadow: 0 0 0 8px rgba(239,68,68,0); }
 }
 @keyframes pingBlink {
   0%, 100% { opacity: 1; }
@@ -1974,6 +2066,13 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   background: var(--teal);
   box-shadow: 0 0 0 0 rgba(14,138,122,.4);
   animation: ripple 2s infinite; flex-shrink: 0;
+}
+.wr-pulse-dot.ping-flash {
+  background: #ef4444;
+  animation: pulseFlash 1s infinite;
+}
+.wr-bar-ping {
+  animation: pulseFlash 1.5s infinite !important;
 }
 .wr-title { font-size: 14px; font-weight: 700; color: var(--navy); flex: 1; }
 .wr-count {

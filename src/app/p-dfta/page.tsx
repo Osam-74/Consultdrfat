@@ -484,8 +484,15 @@ export default function AdminPage() {
 
 
         {/* ── Waiting Room Bar — full width, links to /waiting-room ── */}
+        {(() => {
+          const hasFreshPing = waitingRoom.some(b => {
+            const pt = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+            return pt && typeof pt === "number" && (Date.now() - pt) < 60_000;
+          });
+          return (
         <Link
           href="/waiting-room"
+          className={hasFreshPing ? "wr-bar-ping" : ""}
           style={{
             display:"flex", alignItems:"center", gap:12, width:"100%",
             textDecoration:"none",
@@ -500,7 +507,7 @@ export default function AdminPage() {
           }}
         >
           {waitingRoom.length > 0 && (
-            <span className="wr-pulse-dot" style={{background:"#fff"}} />
+            <span className={"wr-pulse-dot" + (hasFreshPing ? " ping-flash" : "")} style={{background:"#fff"}} />
           )}
           <span style={{fontWeight:700,fontSize:14}}>Waiting Room</span>
           {waitingRoom.length > 0 ? (
@@ -515,6 +522,8 @@ export default function AdminPage() {
             <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
           )}
         </Link>
+          );
+        })()}
 
         {/* Stats grid — Upcoming full width on top, then 4 stats below in one row */}
         <div className="dash-stats-grid">
