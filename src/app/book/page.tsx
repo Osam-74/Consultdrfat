@@ -72,7 +72,21 @@ export default function BookPage() {
         getActiveBookings(user?.uid ?? undefined).catch(() => []),
       ]);
       setSettings(s);
+
+      // Build taken set: user's own bookings + ALL active bookings from the worker
+      // (The worker uses Firebase Admin SDK which can read all bookings regardless
+      //  of Firestore client-side RLS rules that limit clients to their own data.)
       const taken = new Set(b.map((x: Booking) => x.slotStart.toMillis()));
+      try {
+        const res = await fetch(`${API_BASE}/taken-slots`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.taken)) {
+            data.taken.forEach((ms: number) => taken.add(ms));
+          }
+        }
+      } catch { /* non-fatal — falls back to just user's own bookings */ }
+
       setSlots(generateSlots(s, t, e, taken));
       setReady(true);
 

@@ -176,6 +176,9 @@ export default function AdminPage() {
   const [calMonth, setCalMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selDate, setSelDate]   = useState<string|null>(null);
   const [addWin, setAddWin]     = useState({ start:"09:00", end:"17:00" });
+  const [addingDay, setAddingDay] = useState<number | null>(null);
+  const [newWinStart, setNewWinStart] = useState("09:00");
+  const [newWinEnd, setNewWinEnd] = useState("17:00");
   const [saving2, setSaving2]   = useState(false);
 
   const refresh = useCallback(async () => {
@@ -701,7 +704,50 @@ export default function AdminPage() {
                               </div>
                             ))}
                           </div>
-                          <button className="week-add-btn" onClick={async()=>{await saveTemplate({weekday:dayIdx,start:"09:00",end:"17:00",active:true});refresh();}}>+ Add</button>
+                          {addingDay === dayIdx ? (
+                            <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
+                              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                                <input
+                                  type="time"
+                                  value={newWinStart}
+                                  onChange={e=>setNewWinStart(e.target.value)}
+                                  style={{fontSize:12,padding:"4px 6px",borderRadius:6,border:"1px solid var(--line)",width:"auto"}}
+                                />
+                                <span style={{fontSize:11,color:"var(--muted)"}}>to</span>
+                                <input
+                                  type="time"
+                                  value={newWinEnd}
+                                  onChange={e=>setNewWinEnd(e.target.value)}
+                                  style={{fontSize:12,padding:"4px 6px",borderRadius:6,border:"1px solid var(--line)",width:"auto"}}
+                                />
+                              </div>
+                              <div style={{display:"flex",gap:6}}>
+                                <button
+                                  className="btn btn-primary btn-sm"
+                                  style={{fontSize:11,padding:"4px 10px"}}
+                                  onClick={async()=>{
+                                    await saveTemplate({weekday:dayIdx,start:newWinStart,end:newWinEnd,active:true});
+                                    await refresh();
+                                    setAddingDay(null);
+                                  }}
+                                >Save</button>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  style={{fontSize:11,padding:"4px 10px"}}
+                                  onClick={()=>setAddingDay(null)}
+                                >Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              className="week-add-btn"
+                              onClick={()=>{
+                                setNewWinStart("09:00");
+                                setNewWinEnd("17:00");
+                                setAddingDay(dayIdx);
+                              }}
+                            >+ Add</button>
+                          )}
                         </div>
                       );
                     })}
@@ -749,7 +795,7 @@ export default function AdminPage() {
                     <div
                       ref={calStripRef}
                       style={{
-                        display:"flex", gap:8, overflowX:"auto", scrollSnapType:"x mandatory",
+                        display:"flex", gap:4, overflowX:"auto", scrollSnapType:"x mandatory",
                         flex:1, paddingBottom:4, scrollbarWidth:"thin",
                         WebkitOverflowScrolling:"touch",
                       }}
@@ -768,8 +814,8 @@ export default function AdminPage() {
                             key={ds}
                             onClick={() => setCalSelectedDate(ds)}
                             style={{
-                              flexShrink:0, width:44, paddingTop:7, paddingBottom:7,
-                              borderRadius:10, border:"2px solid", cursor:"pointer",
+                              flexShrink:0, width:32, paddingTop:5, paddingBottom:5,
+                              borderRadius:8, border:"2px solid", cursor:"pointer",
                               display:"flex", flexDirection:"column", alignItems:"center", gap:1,
                               scrollSnapAlign:"start",
                               borderColor: isSel ? "var(--teal)" : isToday ? "rgba(14,138,122,.3)" : "#e8edf3",
@@ -778,7 +824,7 @@ export default function AdminPage() {
                               transition:"all .2s",
                             }}
                           >
-                            <span style={{fontSize:8,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
+                            <span style={{fontSize:7,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
                               {DOW_SHORT[d.getDay()]}
                             </span>
                             <span style={{fontSize:15,fontWeight:800}}>
