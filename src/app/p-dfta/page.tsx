@@ -34,10 +34,8 @@ function calCells(base: Date): Date[] {
   return cells;
 }
 
-const BrandNav = ({ onSignOut, waitingCount, pingCount }: {
+const BrandNav = ({ onSignOut }: {
   onSignOut: () => void;
-  waitingCount: number;
-  pingCount: number;
 }) => (
   <nav className="nav" style={{borderBottom:"1px solid var(--line)",marginBottom:4}}>
     <Link href="/" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:10}} className="brand">
@@ -45,36 +43,6 @@ const BrandNav = ({ onSignOut, waitingCount, pingCount }: {
       <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
     </Link>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      {/* Waiting Room button — links to dedicated waiting room page */}
-      <Link
-        href="/waiting-room"
-        style={{
-          textDecoration:"none",
-          display:"flex",alignItems:"center",gap:6,
-          padding:"6px 12px", borderRadius:8, fontSize:13, fontWeight:600,
-          background: pingCount > 0 ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : undefined,
-          color: pingCount > 0 ? "#fff" : "var(--navy)",
-          border: pingCount > 0 ? "none" : "1px solid var(--line)",
-          transition: "all .2s",
-        }}
-        className="btn btn-ghost btn-sm"
-      >
-        🚪 Waiting Room
-        {waitingCount > 0 && (
-          <span style={{
-            background: pingCount > 0 ? "rgba(255,255,255,.25)" : "var(--teal)",
-            color: "#fff", borderRadius: 10, padding: "1px 7px",
-            fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: "center",
-          }}>{waitingCount}</span>
-        )}
-        {pingCount > 0 && (
-          <span style={{
-            background:"#ef4444", borderRadius:"50%", width:8, height:8,
-            display:"inline-block", boxShadow:"0 0 0 2px #fff",
-            animation: "pingBlink 1s infinite",
-          }} />
-        )}
-      </Link>
       <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
     </div>
   </nav>
@@ -165,7 +133,7 @@ function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function AdminPage() {
   const { user, role, loading, signOut } = useAuth();
-  const [tab, setTab]               = useState<"availability"|"bookings"|"discounts"|"settings">("availability");
+  const [tab, setTab]               = useState<"availability"|"bookings"|"clients"|"discounts"|"settings">("availability");
   const [earningsFilter, setEarningsFilter] = useState<"week"|"month">("month");
   const [earningsFrom, setEarningsFrom] = useState("");
   const [earningsTo, setEarningsTo]   = useState("");
@@ -477,7 +445,7 @@ export default function AdminPage() {
   return (
     <div style={{minHeight:"100vh",background:"var(--paper)"}}>
       <div className="wrap">
-        <BrandNav onSignOut={signOut} waitingCount={waitingRoom.length} pingCount={pingCount} />
+        <BrandNav onSignOut={signOut} />
 
         {/* ── Ping notification banner ── */}
         {pingNotification && (
@@ -511,6 +479,39 @@ export default function AdminPage() {
         )}
 
 
+
+        {/* ── Waiting Room Bar — full width, links to /waiting-room ── */}
+        <Link
+          href="/waiting-room"
+          style={{
+            display:"flex", alignItems:"center", gap:12, width:"100%",
+            textDecoration:"none",
+            background: waitingRoom.length > 0
+              ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)"
+              : "#fff",
+            color: waitingRoom.length > 0 ? "#fff" : "var(--navy)",
+            border: waitingRoom.length > 0 ? "none" : "1px solid var(--line)",
+            borderRadius:16, padding:"14px 20px",
+            marginBottom:14, boxShadow:"var(--shadow-sm)",
+            transition:"all .2s", cursor:"pointer",
+          }}
+        >
+          {waitingRoom.length > 0 && (
+            <span className="wr-pulse-dot" style={{background:"#fff"}} />
+          )}
+          <span style={{fontWeight:700,fontSize:14}}>Waiting Room</span>
+          {waitingRoom.length > 0 ? (
+            <span style={{
+              fontSize:12, fontWeight:700,
+              background: "rgba(255,255,255,.2)",
+              color:"#fff", borderRadius:999, padding:"2px 12px",
+            }}>
+              {waitingRoom.length} client{waitingRoom.length!==1?"s":""} waiting
+            </span>
+          ) : (
+            <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
+          )}
+        </Link>
 
         {/* Stats grid — Upcoming full width on top, then 4 stats below in one row */}
         <div className="dash-stats-grid">
@@ -555,9 +556,9 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="adminbar">
-          {(["availability","bookings","discounts","settings"] as const).map(t=>(
+          {(["availability","bookings","clients","discounts","settings"] as const).map(t=>(
             <button key={t} className={"tabbtn"+(tab===t?" active":"")} onClick={()=>setTab(t)}>
-              {t==="availability"?"🗓 Availability":t==="bookings"?"📋 Bookings":t==="discounts"?"🎁 Discounts":"⚙️ Settings"}
+              {t==="availability"?"🗓 Availability":t==="bookings"?"📋 Bookings":t==="clients"?"👥 Clients":t==="discounts"?"🎁 Discounts":"⚙️ Settings"}
             </button>
           ))}
         </div>
@@ -714,153 +715,6 @@ export default function AdminPage() {
         {/* ══ BOOKINGS ══ */}
         {tab==="bookings" && (
           <>
-            {/* ── Waiting Room Widget ── */}
-            <div className={"wr-widget" + (waitingRoomOpen ? " open" : "")}>
-              <button
-                className="wr-widget-toggle"
-                onClick={() => setWaitingRoomOpen(v => !v)}
-              >
-                <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-                  {waitingRoom.length > 0 && <div className="wr-pulse-dot" />}
-                  <span style={{fontWeight:700,fontSize:14}}>🚪 Waiting Room</span>
-                  {waitingRoom.length > 0 ? (
-                    <span className="wr-count">{waitingRoom.length} client{waitingRoom.length!==1?"s":""} waiting</span>
-                  ) : (
-                    <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
-                  )}
-                </div>
-                <span style={{fontSize:13,color:"var(--muted-2)",transform:waitingRoomOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
-              </button>
-              {waitingRoomOpen && (
-                <div className="wr-widget-body">
-                  {waitingRoom.length === 0 ? (
-                    <p style={{color:"var(--muted)",fontSize:13,textAlign:"center",padding:"12px 0"}}>No clients waiting right now.</p>
-                  ) : (
-                    <div className="wr-list">
-                      {waitingRoom.map(b => {
-                        const d = b.slotStart.toDate();
-                        const sessStatus = waitingSessions[b.id] ?? "none";
-                        const isLiveAlready = sessStatus === "live";
-                        return (
-                          <div key={b.id} className="wr-card">
-                            <div className="wr-avatar">{b.clientName?.[0] ?? "?"}</div>
-                            <div className="wr-info">
-                              <div className="wr-name">{b.clientName}</div>
-                              <div className="wr-slot">📅 {fmtDT(d)}</div>
-                              {b.topic && <div className="wr-topic">💬 {b.topic}</div>}
-                            </div>
-                            <div className="wr-actions">
-                              {isLiveAlready && <span className="wr-live-badge">● Live</span>}
-                              <Link href={`/session/?id=${b.id}&role=practitioner`} className="btn btn-sm btn-primary">
-                                {isLiveAlready ? "Rejoin" : "Start Session →"}
-                              </Link>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="card" style={{marginTop:0}}>
-              <div className="card-header" style={{marginBottom:16}}>
-                <div>
-                  <h3>📋 Bookings</h3>
-                  <p className="card-sub">View upcoming, past, and archived sessions</p>
-                </div>
-              </div>
-
-              {/* Horizontal scrollable calendar strip */}
-              <div style={{
-                display:"flex", alignItems:"center", gap:6, marginBottom:16,
-                overflow:"hidden",
-              }}>
-                <button
-                  className="cal-nav-btn"
-                  onClick={() => {
-                    const d = new Date(calScrollStart + "T00:00:00");
-                    d.setDate(d.getDate() - 7);
-                    setCalScrollStart(ymd(d));
-                  }}
-                  style={{ flexShrink:0 }}
-                  aria-label="Previous week"
-                >‹</button>
-                <div
-                  ref={calStripRef}
-                  style={{
-                    display:"flex", gap:8, overflowX:"auto", scrollSnapType:"x mandatory",
-                    flex:1, paddingBottom:4, scrollbarWidth:"thin",
-                    WebkitOverflowScrolling:"touch",
-                  }}
-                >
-                  {calDays.map(d => {
-                    const ds = ymd(d);
-                    const isToday = ds === ymd(new Date());
-                    const isSel = ds === calSelectedDate;
-                    const dayBookings = nonArchived.filter(b =>
-                      b.status === "paid" && ymd(b.slotStart.toDate()) === ds
-                    );
-                    const hasBookings = dayBookings.length > 0;
-                    const hasCompleted = dayBookings.some(b => (sessionStatuses[b.id] ?? "none") === "complete");
-                    return (
-                      <button
-                        key={ds}
-                        onClick={() => setCalSelectedDate(ds)}
-                        style={{
-                          flexShrink:0, width:44, paddingTop:7, paddingBottom:7,
-                          borderRadius:10, border:"2px solid", cursor:"pointer",
-                          display:"flex", flexDirection:"column", alignItems:"center", gap:1,
-                          scrollSnapAlign:"start",
-                          borderColor: isSel ? "var(--teal)" : isToday ? "rgba(14,138,122,.3)" : "#e8edf3",
-                          background: isSel ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : isToday ? "#f0fdfa" : "#fff",
-                          color: isSel ? "#fff" : "var(--navy)",
-                          transition:"all .2s",
-                        }}
-                      >
-                        <span style={{fontSize:8,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
-                          {DOW_SHORT[d.getDay()]}
-                        </span>
-                        <span style={{fontSize:15,fontWeight:800}}>
-                          {d.getDate()}
-                        </span>
-                        <span style={{fontSize:7,opacity:.8}}>
-                          {MON_SHORT[d.getMonth()]}
-                        </span>
-                        {/* Booking indicator dots */}
-                        <span style={{display:"flex",gap:3,marginTop:2,height:6}}>
-                          {hasBookings && (
-                            <span style={{
-                              width:6, height:6, borderRadius:"50%",
-                              background: isSel ? "#fff" : hasCompleted ? "#0E8A7A" : "#0B2B4A",
-                            }} />
-                          )}
-                          {hasBookings && dayBookings.length > 1 && (
-                            <span style={{
-                              fontSize:8, fontWeight:700, lineHeight:"6px",
-                              color: isSel ? "rgba(255,255,255,.8)" : "var(--muted)",
-                            }}>
-                              {dayBookings.length}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  className="cal-nav-btn"
-                  onClick={() => {
-                    const d = new Date(calScrollStart + "T00:00:00");
-                    d.setDate(d.getDate() + 7);
-                    setCalScrollStart(ymd(d));
-                  }}
-                  style={{ flexShrink:0 }}
-                  aria-label="Next week"
-                >›</button>
-              </div>
-
               {/* ── Filter buttons ── */}
               <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
                 {(["upcoming","past","archived"] as const).map(f => (
@@ -1060,8 +914,81 @@ export default function AdminPage() {
                   );
                 })()
               )}
-            </div>
           </>
+        )}
+
+        {/* ══ CLIENTS ══ */}
+        {tab==="clients" && (
+          <div className="card">
+            <div className="card-header" style={{marginBottom:16}}>
+              <div>
+                <h3>👥 Clients</h3>
+                <p className="card-sub">Click a client to view their info and add consultation notes</p>
+              </div>
+            </div>
+            {(() => {
+              const clientMap = new Map<string, { id: string; name: string; email: string; bookingCount: number; lastVisit?: Date }>();
+              bookings.forEach(b => {
+                if (!b.clientId) return;
+                const existing = clientMap.get(b.clientId);
+                if (existing) {
+                  existing.bookingCount++;
+                  const d = b.slotStart.toDate();
+                  if (!existing.lastVisit || d > existing.lastVisit) existing.lastVisit = d;
+                } else {
+                  clientMap.set(b.clientId, {
+                    id: b.clientId,
+                    name: b.clientName || "Unknown",
+                    email: b.clientEmail || "",
+                    bookingCount: 1,
+                    lastVisit: b.slotStart.toDate(),
+                  });
+                }
+              });
+              const clientList = Array.from(clientMap.values()).sort((a,b) =>
+                (b.lastVisit?.getTime() ?? 0) - (a.lastVisit?.getTime() ?? 0)
+              );
+
+              if (clientList.length === 0) {
+                return <p style={{color:"var(--muted)",fontSize:14,textAlign:"center",padding:"24px 0"}}>No clients yet.</p>;
+              }
+
+              return (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {clientList.map(c => (
+                    <Link
+                      key={c.id}
+                      href={`/clients/${c.id}`}
+                      style={{
+                        display:"flex",alignItems:"center",gap:14,
+                        padding:"14px 16px", borderRadius:12,
+                        border:"1px solid var(--line)", background:"#fff",
+                        textDecoration:"none", cursor:"pointer",
+                        transition:"all .15s",
+                      }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor="var(--teal)"; e.currentTarget.style.background="#f0fdfa"; }}
+                      onMouseOut={e => { e.currentTarget.style.borderColor="var(--line)"; e.currentTarget.style.background="#fff"; }}
+                    >
+                      <div style={{
+                        width:42, height:42, borderRadius:"50%", flexShrink:0,
+                        background:"linear-gradient(135deg,var(--teal),var(--sky))",
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:17, fontWeight:700, color:"#fff",
+                      }}>{c.name?.[0]?.toUpperCase() ?? "?"}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:14,color:"var(--navy)"}}>{c.name}</div>
+                        <div style={{fontSize:12,color:"var(--muted)"}}>
+                          {c.bookingCount} session{c.bookingCount!==1?"s":""}
+                          {c.lastVisit && ` \u00b7 Last: ${MON[c.lastVisit.getMonth()]} ${c.lastVisit.getDate()}`}
+                        </div>
+                      </div>
+                      <span style={{fontSize:16,color:"var(--muted)"}}>\u2192</span>
+                    </Link>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
         )}
 
         {/* ══ SETTINGS ══ */}

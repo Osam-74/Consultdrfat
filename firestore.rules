@@ -74,6 +74,15 @@ service cloud.firestore {
       allow delete: if isPractitioner();
     }
 
+    // ── Client notes (practitioner only) ────────────────────────────────────
+    match /clients/{clientId} {
+      allow read, write: if isPractitioner();
+      match /notes/{noteId} {
+        allow read, create, delete: if isPractitioner();
+        allow update: if false;
+      }
+    }
+
     // ── Mail queue ───────────────────────────────────────────────────────────
     match /mail/{id} { allow create: if signedIn(); allow read, update, delete: if false; }
   }

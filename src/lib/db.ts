@@ -829,3 +829,61 @@ export async function notifyPractitioner(bookingId: string): Promise<void> {
     });
   } catch { /* non-fatal */ }
 }
+
+/* ─────────────────────── Client Notes ──────────────────────────
+   Practitioner can write notes about a client's consultation.
+   Notes are stored in /clients/{clientId}/notes subcollection.
+   Each note has: text, createdAt timestamp, optional bookingId.
+──────────────────────────────────────────────────────────────────── */
+
+export interface ClientNote {
+  id: string;
+  text: string;
+  createdAt: Timestamp;
+  bookingId?: string;
+}
+
+/** Watch all notes for a client in real-time */
+export function watchClientNotes(clientId: string, cb: (notes: ClientNote[]) => void) {
+  const q = query(
+    collection(db, "clients", clientId, "notes"),
+    orderBy("createdAt", "desc")
+  );
+  return onSnapshot(q, (snap) => {
+    const notes = snap.docs.map(d => ({
+      id: d.id,
+      ...(d.data() as Omit<ClientNote, "id">),
+    }));
+    cb(notes);
+  }, (err) => {
+    console.warn("[watchClientNotes]", err);
+  });
+}
+
+/** Add a new note for a client */
+export async function addClientNote(clientId: string, text: string, bookingId?: string): Promise<void> {
+  await addDoc(collection(db, "clients", clientId, "notes"), {
+    text,
+    bookingId: bookingId || null,
+    createdAt: serverTimestamp(),
+  });
+}
+
+/** Delete a note */
+export async function deleteClientNote(clientId: string, noteId: string): Promise<void> {
+  await deleteDoc(doc(db, "clients", clientId, "notes", noteId));
+}
+
+/** Get all bookings for a specific client (for client detail page) */
+export async function getClientBookingsById(clientId: string): Promise<Booking[]> {
+  const q = query(
+    collection(db, "bookings"),
+    where("clientId", "==", clientId),
+    orderBy("slotStart", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({
+    id: d.id,
+    ...(d.data() as Omit<Booking, "id">),
+  }));
+}
