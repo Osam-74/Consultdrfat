@@ -7,14 +7,19 @@ import {
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
   getBookingById, pingPresence, getNextClientBooking,
-  clientLeftSession,
+  clientLeftSession, clientRejoinedSession,
   notifyPractitioner,
   requestExtension, clearExtRequest,
   watchClientNotes, addClientNote,
 } from "@/lib/db";
 import type { ClientNote } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
-import { startVoice, VoiceHandle } from "@/lib/webrtc";
+import {
+  startVoice, VoiceHandle,
+  initiateCall, answerCall, declineCall, endCall,
+  watchCallState, getMicStream,
+  type CallStatus,
+} from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
 import { SessionDoc, Message, Role, DEFAULT_SETTINGS } from "@/lib/types";
@@ -43,6 +48,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [micOn, setMicOn] = useState(false);
   const [scale, setScale] = useState(1);
   const [voiceLive, setVoiceLive] = useState(false);
+  // ── Call state (new call/answer model) ──
+  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
+  const [callCaller, setCallCaller] = useState<Role | null>(null);
+  const [callConnecting, setCallConnecting] = useState(false);
   const [pricePerMin, setPricePerMin] = useState(DEFAULT_SETTINGS.priceNGN / DEFAULT_SETTINGS.sessionLengthMin);
 
   // Discount UI state (practitioner only)
@@ -83,6 +92,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // User can tap any message to quote-reply to it. The quoted message
   // appears above the composer and is sent as a reply reference.
   const [replyTo, setReplyTo] = useState<{ id: string; text: string; from: string } | null>(null);
+  // ── Swipe-to-tag state ──
+  const [swipedMsgId, setSwipedMsgId] = useState<string | null>(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
 
   // ── Client "Notify" ping button state ──
   // Client can ping the practitioner once every 5 minutes.
@@ -197,6 +210,171 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     }
   };
 
+  // ── Call state subscription ──
+  // Watch the call document for incoming calls, connection status, etc.
+  useEffect(() => {
+    const unsub = watchCallState(bookingId, (state) => {
+      setCallStatus(state.status);
+      setCallCaller(state.caller ?? null);
+
+      // Auto-cleanup when call ends
+      if (state.status === "ended" || state.status === "declined") {
+        if (voiceRef.current) {
+          voiceRef.current.stop().catch(() => {});
+          voiceRef.current = null;
+        }
+        localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+        localStreamRef.current = null;
+        setVoiceLive(false);
+        setMicOn(false);
+        setCallConnecting(false);
+      }
+
+      // Mark voice live when connected
+      if (state.status === "connected") {
+        setVoiceLive(true);
+        setCallConnecting(false);
+      }
+    });
+    return () => unsub();
+  }, [bookingId]);
+
+  // ── Client rejoin notification ──
+  // If a client enters a session that's already live (reconnecting after disconnect),
+  // notify the practitioner that the client is back.
+  const hasNotifiedRejoinRef = useRef(false);
+  useEffect(() => {
+    if (!session || session.status !== "live" || isPract) return;
+    if (hasNotifiedRejoinRef.current) return;
+    hasNotifiedRejoinRef.current = true;
+    clientRejoinedSession(bookingId).catch(() => {});
+  }, [session, isPract, bookingId]);
+
+  // ── Call handlers (new call/answer model) ──
+  const handleStartCall = async () => {
+    if (!sessionLive) return;
+    setCallConnecting(true);
+    try {
+      const stream = await getMicStream();
+      localStreamRef.current = stream;
+      setMicOn(true);
+
+      const handle = await initiateCall({
+        bookingId,
+        role,
+        localStream: stream,
+        onRemote: (remoteStream) => {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        },
+        onState: (s) => {
+          if (s === "connected") {
+            setVoiceLive(true);
+            setCallConnecting(false);
+          }
+        },
+      });
+      voiceRef.current = handle;
+
+      // Audio level visualizer
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!localStreamRef.current) return;
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += Math.abs(dataArray[i] - 128);
+        const avg = sum / dataArray.length / 128;
+        setScale(Math.max(0.85, Math.min(1.3, 1 + avg * 1.5)));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (err) {
+      console.error("Call initiation error:", err);
+      setCallConnecting(false);
+      alert("Could not start call. Please check your microphone permissions.");
+    }
+  };
+
+  const handleAnswerCall = async () => {
+    setCallConnecting(true);
+    try {
+      const stream = await getMicStream();
+      localStreamRef.current = stream;
+      setMicOn(true);
+
+      const handle = await answerCall({
+        bookingId,
+        role,
+        localStream: stream,
+        onRemote: (remoteStream) => {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        },
+        onState: (s) => {
+          if (s === "connected") {
+            setVoiceLive(true);
+            setCallConnecting(false);
+          }
+        },
+      });
+      voiceRef.current = handle;
+
+      // Audio visualizer
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!localStreamRef.current) return;
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += Math.abs(dataArray[i] - 128);
+        const avg = sum / dataArray.length / 128;
+        setScale(Math.max(0.85, Math.min(1.3, 1 + avg * 1.5)));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (err) {
+      console.error("Answer call error:", err);
+      setCallConnecting(false);
+      alert("Could not answer call. Please check your microphone permissions.");
+    }
+  };
+
+  const handleDeclineCall = async () => {
+    try {
+      await declineCall(bookingId, role);
+    } catch (err) {
+      console.error("Decline call error:", err);
+    }
+  };
+
+  const handleEndCall = async () => {
+    try {
+      if (voiceRef.current) {
+        await voiceRef.current.stop();
+        voiceRef.current = null;
+      }
+      localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+      localStreamRef.current = null;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      setMicOn(false);
+      setVoiceLive(false);
+      await endCall(bookingId, role);
+    } catch (err) {
+      console.error("End call error:", err);
+    }
+  };
+
   // ── Practitioner file upload handler ──
   const handlePractFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -250,6 +428,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Uses refs to ensure each warning fires exactly once per session.
   const beepedAt5MinRef = useRef(false);
   const beepedAt1MinRef = useRef(false);
+  const autoEndedRef = useRef(false);
   const playTimeWarningBeep = () => {
     try {
       const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -283,38 +462,37 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       beepedAt1MinRef.current = true;
       playTimeWarningBeep();
     }
+    // AUTO-END: When time runs out and session is still live,
+    // automatically end the call and block the session for the client.
+    // The practitioner can still offer an extension.
+    if (remainingMs <= 0 && !autoEndedRef.current) {
+      autoEndedRef.current = true;
+      // End voice call immediately
+      if (voiceRef.current) {
+        voiceRef.current.stop().catch(() => {});
+        voiceRef.current = null;
+      }
+      localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+      localStreamRef.current = null;
+      setVoiceLive(false);
+      setMicOn(false);
+      // For client: auto-complete the session after 10 seconds if practitioner
+      // hasn't offered an extension
+      if (!isPract) {
+        setTimeout(() => {
+          // Check if an extension offer has been sent — if not, complete
+          watchSession(bookingId, (s) => {
+            if (s && s.status === "live" && (!s.offer || s.offer.status !== "sent")) {
+              completeSession(bookingId).catch(() => {});
+            }
+          })();
+        }, 10_000);
+      }
+    }
   }, [now, session]);
 
   // ── Voice ──
-  const joinVoice = async () => {
-    try {
-      // Request mic with echo cancellation & noise suppression
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 48000,
-        }
-      });
-      localStreamRef.current = stream;
-      setMicOn(true);
-      const voice = await startVoice({
-        bookingId, role,
-        localStream: stream,
-        onRemote: (remoteStream) => {
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.play().catch(() => {});
-          }
-        },
-      });
-      voiceRef.current = voice;
-      setVoiceLive(true);
-    } catch (err) {
-      console.error("Mic/voice error:", err);
-      alert("Could not access microphone. Please allow mic access and try again.");
-    }
-  };;
+  // joinVoice is replaced by handleStartCall / handleAnswerCall (call/answer model)
 
   const meter = (stream: MediaStream) => {
     try {
@@ -332,16 +510,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     } catch { /* non-fatal */ }
   };
 
-  const toggleMute = () => {
-    const tracks = localStreamRef.current?.getAudioTracks() ?? [];
-    if (tracks.length === 0) return;
-    const track = tracks[0];
-    const newEnabled = !track.enabled;
-    track.enabled = newEnabled;
-    setMicOn(newEnabled);
-    // The RTCRtpSender holds a reference to the same MediaStreamTrack object,
-    // so changing track.enabled above is sufficient — no need to touch senders.
-  };
+  // toggleMute is now inline in the call controls UI
 
   // ── Full media teardown on unmount ───────────────────────────────────
   useEffect(() => () => {
@@ -391,8 +560,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           // Re-join after a brief delay (only if user was in voice before)
           setTimeout(() => {
             if (voiceRef.current === null && localStreamRef.current === null) {
-              // User was in voice — re-join automatically
-              joinVoice();
+              // Voice auto-rejoin disabled in call/answer model
+              // User needs to click Call again to reconnect
             }
           }, 2000);
         }
@@ -654,11 +823,13 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </div>
           </div>
 
-          {/* ── Voice panel — slightly smaller ── */}
+          {/* ── Voice panel with call/answer model ── */}
           <div className="voice">
             <div className={"timer num " + timerCls}>{fmt(remaining)}</div>
             <div className="tl">{complete ? "Session time complete" : "Session time remaining"}</div>
-            <div className="orb" style={{ transform: `scale(${scale})` }}>{micOn ? "🎙️" : "🎧"}</div>
+            <div className="orb" style={{ transform: `scale(${scale})` }}>
+              {voiceLive ? (micOn ? "🎙️" : "🎧") : callStatus === "ringing" ? "📞" : "🎧"}
+            </div>
             {!sessionLive && (
               <div className="session-not-started-banner">
                 {isPract ? "⏸ Press Start session below to begin" : "⏳ Waiting for practitioner to start the session…"}
@@ -690,18 +861,103 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 🔔 Notify
               </button>
             )}
-            <div className="vn">{voiceLive ? "Voice connected" : micOn ? "Mic ready" : sessionLive ? "Join voice to talk" : "Voice locked"}</div>
-            <div className="controls">
-              {!localStreamRef.current
-                ? <button className="ctl" onClick={joinVoice}
-                    disabled={!sessionLive}
-                    style={sessionLive ? {} : {opacity:.45, cursor:"not-allowed"}}
-                    title={sessionLive ? "Click to join voice" : "Waiting for session to start…"}>
-                    <span className="knob">🎧</span>{sessionLive ? "🔴 Join Voice" : "Waiting…"}
+
+            {/* ── Incoming call notification ── */}
+            {callStatus === "ringing" && callCaller !== role && !voiceLive && (
+              <div className="incoming-call-banner" style={{
+                marginTop: 12,
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: "linear-gradient(135deg,#0E8A7A,#0B2B4A)",
+                color: "#fff",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                alignItems: "center",
+                animation: "pingBlink 1.5s infinite",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  📞 {callCaller === "practitioner" ? "Dr. Fat" : "Client"} is calling you…
+                </div>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button
+                    onClick={handleAnswerCall}
+                    disabled={callConnecting}
+                    style={{
+                      padding: "8px 20px", borderRadius: 10, border: "none",
+                      background: "#22c55e", color: "#fff", fontWeight: 700,
+                      fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    📞 Answer
                   </button>
-                : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute}>
-                    <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
-                  </button>}
+                  <button
+                    onClick={handleDeclineCall}
+                    style={{
+                      padding: "8px 20px", borderRadius: 10, border: "none",
+                      background: "#ef4444", color: "#fff", fontWeight: 700,
+                      fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    ✕ Decline
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Calling... indicator (for caller while ringing) ── */}
+            {callStatus === "ringing" && callCaller === role && !voiceLive && (
+              <div style={{
+                marginTop: 8, fontSize: 12, color: "rgba(255,255,255,.6)",
+                display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+              }}>
+                <span style={{ animation: "pingBlink 1s infinite" }}>📞</span>
+                Calling… waiting for answer
+              </div>
+            )}
+
+            <div className="vn">
+              {voiceLive ? "Voice connected" :
+               callStatus === "ringing" ? (callCaller === role ? "Calling…" : "Incoming call") :
+               callConnecting ? "Connecting…" :
+               sessionLive ? "Click call to start voice" : "Voice locked"}
+            </div>
+
+            {/* ── Call controls: Call, Video (disabled), Mute, End Call, Leave ── */}
+            <div className="controls">
+              {/* Call / End Call button */}
+              {!voiceLive && callStatus !== "ringing" && (
+                <button className="ctl" onClick={handleStartCall}
+                  disabled={!sessionLive || callConnecting}
+                  style={sessionLive && !callConnecting ? {} : {opacity:.45, cursor:"not-allowed"}}
+                  title={sessionLive ? "Start voice call" : "Waiting for session to start…"}>
+                  <span className="knob">📞</span>{sessionLive ? "Call" : "Locked"}
+                </button>
+              )}
+              {voiceLive && (
+                <button className={"ctl" + (micOn ? "" : " muted")} onClick={() => {
+                  // Toggle mute on local stream
+                  localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
+                  setMicOn(!micOn);
+                }}>
+                  <span className="knob">{micOn ? "🎙️" : "🔇"}</span>{micOn ? "Mute" : "Unmute"}
+                </button>
+              )}
+              {voiceLive && (
+                <button className="ctl danger" onClick={handleEndCall}
+                  title="End voice call">
+                  <span className="knob">📞</span>Drop Call
+                </button>
+              )}
+              {/* Video icon — not functional yet, visual only */}
+              <button className="ctl" disabled
+                style={{ opacity: 0.4, cursor: "not-allowed" }}
+                title="Video coming soon">
+                <span className="knob">📹</span>Video
+              </button>
+              {/* End/Leave session */}
               <button className="ctl danger"
                 onClick={() => {
                   if (isPract) {
@@ -727,13 +983,85 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   const isImage = m.fileUrl && m.fileType?.startsWith("image/");
                   const isDoc   = m.fileUrl && !isImage;
                   const canReply = m.from !== "system" && sessionLive;
+                  const isSwiped = swipedMsgId === m.id;
                   return (
                     <div
                       key={m.id}
+                      className={"msg-wrapper " + cls}
+                      style={{
+                        position: "relative",
+                        overflow: "visible",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {/* Swipe action button — revealed on swipe left */}
+                      {canReply && (
+                        <button
+                          className="swipe-tag-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReplyTo({ id: m.id, text: m.text, from: m.from });
+                            setSwipedMsgId(null);
+                          }}
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            padding: "8px 12px",
+                            borderRadius: 10,
+                            border: "none",
+                            background: "var(--teal)",
+                            color: "#fff",
+                            fontSize: 16,
+                            cursor: "pointer",
+                            opacity: isSwiped ? 1 : 0,
+                            pointerEvents: isSwiped ? "auto" : "none",
+                            transition: "opacity .2s",
+                            zIndex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                            whiteSpace: "nowrap",
+                          }}
+                          title="Reply to this message"
+                        >
+                          ↩ Reply
+                        </button>
+                      )}
+                    <div
                       className={"msg " + cls}
-                      onClick={() => canReply && setReplyTo({ id: m.id, text: m.text, from: m.from })}
-                      style={canReply ? { cursor: "pointer" } : {}}
-                      title={canReply ? "Tap to reply" : undefined}
+                      onTouchStart={(e) => {
+                        if (!canReply) return;
+                        touchStartX.current = e.touches[0].clientX;
+                        touchStartY.current = e.touches[0].clientY;
+                      }}
+                      onTouchEnd={(e) => {
+                        if (!canReply) return;
+                        const dx = e.changedTouches[0].clientX - touchStartX.current;
+                        const dy = e.changedTouches[0].clientY - touchStartY.current;
+                        // Swipe left (negative dx) with more horizontal than vertical movement
+                        if (dx < -40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                          setSwipedMsgId(m.id);
+                        } else if (dx > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                          // Swipe right closes the tag button
+                          setSwipedMsgId(null);
+                        }
+                      }}
+                      onClick={() => {
+                        // On desktop, click still works for reply
+                        if (canReply && !("ontouchstart" in window)) {
+                          setReplyTo({ id: m.id, text: m.text, from: m.from });
+                        }
+                        // Close swiped state on click
+                        if (isSwiped) setSwipedMsgId(null);
+                      }}
+                      style={{
+                        position: "relative",
+                        transform: isSwiped ? "translateX(-70px)" : "translateX(0)",
+                        transition: "transform .2s ease",
+                        zIndex: 2,
+                      }}
                     >
                       {/* Reply quote — shows the original message being replied to */}
                       {m.replyToText && (
@@ -797,6 +1125,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       {m.from !== "system" && (
                         <div className="t">{new Date(m.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                       )}
+                    </div>
                     </div>
                   );
                 })}
@@ -1007,12 +1336,17 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </button>
             <button className="obtn red" onClick={async () => {
               setShowLeaveConfirm(false);
+              // End call if active
+              if (voiceRef.current) {
+                await handleEndCall();
+              }
+              // Send leave notification and update booking
               await clientLeftSession(bookingId).catch(() => {});
               voiceRef.current?.stop().catch(() => {});
               voiceRef.current = null;
               localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
               localStreamRef.current = null;
-              window.location.href = "/";
+              window.location.href = "/?session=left";
             }}>
               Yes, leave session
             </button>

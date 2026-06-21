@@ -1,0 +1,48 @@
+name: Promote to Production (Vercel)
+
+# This action promotes the latest Vercel deployment on main to production.
+# Vercel sometimes deploys main as "preview" instead of "production" —
+# this ensures it gets promoted.
+#
+# Required GitHub secrets:
+# VERCEL_TOKEN — a Vercel access token (create at vercel.com/account/tokens)
+# VERCEL_ORG_ID — your Vercel org ID (found in .vercel/orgId or project settings)
+# VERCEL_PROJECT_ID — your Vercel project ID (found in .vercel/projectId or project settings)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # allow manual trigger
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel Environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build Project
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy to Production
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

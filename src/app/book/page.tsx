@@ -179,10 +179,33 @@ export default function BookPage() {
     setDiscountValidating(false);
   };
 
-  const pay = () => {
+  const pay = async () => {
     if (!selSlot || !user || !consent) return;
     const email = user.email ?? "";
     if (!email.includes("@")) { alert("No email on your Google account. Sign out and try again."); return; }
+
+    // ── Double-booking prevention: re-check taken slots at submission time ──
+    // The slot list may have been built minutes ago — verify the slot is still free
+    try {
+      if (API_BASE) {
+        const res = await fetch(`${API_BASE}/taken-slots`);
+        if (res.ok) {
+          const data = await res.json();
+          const taken = (data.taken as number[]) ?? [];
+          const slotMs = selSlot.start.getTime();
+          // Check exact match or overlap (within 1 minute tolerance)
+          const isTaken = taken.some((ms) => Math.abs(ms - slotMs) < 60_000);
+          if (isTaken) {
+            alert("Sorry, this slot was just booked by someone else. Please select another time.");
+            setStatus("idle");
+            // Refresh slots
+            window.location.reload();
+            return;
+          }
+        }
+      }
+    } catch { /* non-fatal — proceed with booking */ }
+
     setStatus("paying");
     let createdId: string | null = null;
     createBooking({

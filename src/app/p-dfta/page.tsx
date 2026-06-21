@@ -144,6 +144,10 @@ export default function AdminPage() {
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, "none"|"idle"|"live"|"complete">>({});
   const [discountCodes, setDiscountCodes]       = useState<DiscountCode[]>([]);
   const [saving, setSaving]         = useState(false);
+  const [clearing, setClearing]     = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearStep, setClearStep]   = useState<"idle"|"backup"|"delete"|"done">("idle");
+  const [clearProgress, setClearProgress] = useState("");
   // Horizontal calendar date picker for bookings tab
   const [calSelectedDate, setCalSelectedDate] = useState<string>(ymd(new Date()));
   const [bookingsFilter, setBookingsFilter] = useState<"upcoming"|"past"|"archived">("upcoming");
@@ -382,13 +386,18 @@ export default function AdminPage() {
     let totalSeconds = 0;
     completed.forEach(b => {
       const startMs = b.slotStart.toMillis();
-      const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (settings.sessionLengthMin * 60_000);
+      // Use completedAt if available; otherwise use slotStart + sessionLengthMin
+      // Also check for extension minutes from the session offer
+      const extMin = (b as unknown as Record<string, unknown>).extensionMinutes as number | undefined;
+      const baseMin = extMin ? settings.sessionLengthMin + extMin : settings.sessionLengthMin;
+      const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (baseMin * 60_000);
       const durSec = Math.max(0, Math.round((endMs - startMs) / 1000));
       totalSeconds += durSec;
     });
-    // Return hours with 1 decimal place if less than 10 hours
+    // Always show with 1 decimal place (e.g. 0.3, 1.5, 2.0)
+    // This ensures even short sessions are visible
     const hrs = totalSeconds / 3600;
-    return hrs < 10 ? Math.round(hrs * 10) / 10 : Math.floor(hrs);
+    return Math.round(hrs * 10) / 10;
   })();
 
   // ── Active patients: unique clientIds who have made bookings ──
@@ -481,6 +490,37 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── Return to active session banner ── */}
+        {(() => {
+          const activeSession = bookings.find(b =>
+            b.status === "paid" && !b.archived &&
+            sessionStatuses[b.id] === "live"
+          );
+          if (!activeSession) return null;
+          return (
+            <Link
+              href={`/session/?id=${activeSession.id}&role=practitioner`}
+              style={{
+                display: "flex", alignItems: "center", gap: 12, width: "100%",
+                textDecoration: "none",
+                background: "linear-gradient(135deg,#dc2626,#991b1b)",
+                color: "#fff", borderRadius: 16, padding: "14px 20px",
+                marginBottom: 14, boxShadow: "0 4px 16px rgba(220,38,38,.3)",
+                transition: "all .2s", cursor: "pointer",
+              }}
+            >
+              <span style={{
+                width: 10, height: 10, borderRadius: "50%",
+                background: "#fff", display: "inline-block", flexShrink: 0,
+                animation: "pingBlink 1s infinite",
+              }} />
+              <span style={{ fontWeight: 700, fontSize: 14 }}>🔴 Session in progress</span>
+              <span style={{ fontSize: 12, opacity: 0.9, marginLeft: "auto", whiteSpace: "nowrap" }}>
+                Return to session →
+              </span>
+            </Link>
+          );
+        })()}
 
 
         {/* ── Waiting Room Bar — full width, links to /waiting-room ── */}
@@ -492,7 +532,6 @@ export default function AdminPage() {
           return (
         <Link
           href="/waiting-room"
-          className={hasFreshPing ? "wr-bar-ping" : ""}
           style={{
             display:"flex", alignItems:"center", gap:12, width:"100%",
             textDecoration:"none",
@@ -1178,6 +1217,172 @@ export default function AdminPage() {
                 onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
                 {saving?"Saving…":"💾 Save Settings"}
               </button>
+            </div>
+
+            {/* ── Data Management (Testing Mode) ── */}
+            <div className="card" style={{borderColor:"#fbbf24",borderWidth:2}}>
+              <div className="card-header" style={{marginBottom:16}}>
+                <div>
+                  <h3 style={{color:"#f59e0b"}}>⚠️ Data Management (Testing)</h3>
+                  <p className="card-sub">Backup or clear all test data before going live.</p>
+                </div>
+              </div>
+
+              {clearStep === "idle" && !showClearConfirm && (
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <p style={{fontSize:13,color:"var(--muted)",lineHeight:1.6}}>
+                    Use this to start fresh before launching. <strong>Backup</strong> downloads all data as JSON.
+                    <strong> Clear Database</strong> deletes all bookings, sessions, messages, notes, and discount codes permanently.
+                  </p>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <button
+                      className="btn btn-ghost"
+                      style={{borderColor:"var(--teal)",color:"var(--teal)"}}
+                      disabled={clearing}
+                      onClick={async () => {
+                        setClearing(true);
+                        setClearProgress("Backing up data…");
+                        try {
+                          const { db } = await import("@/lib/firebase");
+                          const { collection, getDocs } = await import("firebase/firestore");
+
+                          const backup: Record<string, unknown> = { timestamp: new Date().toISOString() };
+
+                          try {
+                            const snap = await getDocs(collection(db, "bookings"));
+                            backup.bookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                          } catch (e) { backup.bookings = `Error: ${e}`; }
+
+                          try {
+                            const snap = await getDocs(collection(db, "discountCodes"));
+                            backup.discountCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                          } catch (e) { backup.discountCodes = `Error: ${e}`; }
+
+                          try {
+                            const snap = await getDocs(collection(db, "settings"));
+                            backup.settings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                          } catch (e) { backup.settings = `Error: ${e}`; }
+
+                          const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `consultdrfat-backup-${new Date().toISOString().split("T")[0]}.json`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          setClearProgress("Backup downloaded!");
+                        } catch (err) {
+                          console.error("Backup error:", err);
+                          alert("Backup failed. Check console for details.");
+                        } finally {
+                          setClearing(false);
+                          setTimeout(() => setClearProgress(""), 3000);
+                        }
+                      }}
+                    >
+                      📦 Backup Data (JSON)
+                    </button>
+                    <button
+                      className="btn"
+                      style={{background:"#ef4444",color:"#fff",borderColor:"#ef4444"}}
+                      onClick={() => setShowClearConfirm(true)}
+                    >
+                      🗑️ Clear All Data
+                    </button>
+                  </div>
+                  {clearProgress && (
+                    <p style={{fontSize:12,color:"var(--teal)",fontWeight:600}}>{clearProgress}</p>
+                  )}
+                </div>
+              )}
+
+              {showClearConfirm && (
+                <div style={{
+                  background:"#fef2f2",borderRadius:12,padding:20,
+                  border:"2px solid #ef4444",
+                }}>
+                  <h4 style={{color:"#dc2626",margin:"0 0 12px"}}>⚠️ Are you absolutely sure?</h4>
+                  <p style={{fontSize:13,color:"#7f1d1d",lineHeight:1.6,marginBottom:16}}>
+                    This will permanently delete ALL bookings, sessions, chat messages, client notes, and discount codes.
+                    This cannot be undone. Make sure you've downloaded a backup first.
+                  </p>
+                  <div style={{display:"flex",gap:10}}>
+                    <button
+                      className="btn"
+                      style={{background:"#dc2626",color:"#fff",borderColor:"#dc2626"}}
+                      disabled={clearing}
+                      onClick={async () => {
+                        setClearing(true);
+                        setClearProgress("Deleting bookings…");
+                        try {
+                          const { db } = await import("@/lib/firebase");
+                          const { collection, getDocs, deleteDoc } = await import("firebase/firestore");
+
+                          // Delete all bookings + subcollections
+                          const bookingsSnap = await getDocs(collection(db, "bookings"));
+                          for (const d of bookingsSnap.docs) {
+                            try {
+                              const msgsSnap = await getDocs(collection(db, "bookings", d.id, "messages"));
+                              for (const m of msgsSnap.docs) await deleteDoc(m.ref);
+                            } catch {}
+                            try {
+                              const sessSnap = await getDocs(collection(db, "bookings", d.id, "session"));
+                              for (const s of sessSnap.docs) await deleteDoc(s.ref);
+                            } catch {}
+                            await deleteDoc(d.ref);
+                          }
+                          setClearProgress("Deleting discount codes…");
+
+                          const dcSnap = await getDocs(collection(db, "discountCodes"));
+                          for (const d of dcSnap.docs) await deleteDoc(d.ref);
+
+                          setClearProgress("Deleting client notes…");
+                          const clientsSnap = await getDocs(collection(db, "clients"));
+                          for (const c of clientsSnap.docs) {
+                            try {
+                              const notesSnap = await getDocs(collection(db, "clients", c.id, "notes"));
+                              for (const n of notesSnap.docs) await deleteDoc(n.ref);
+                            } catch {}
+                            await deleteDoc(c.ref);
+                          }
+
+                          setClearProgress("Deleting calls…");
+                          const callsSnap = await getDocs(collection(db, "calls"));
+                          for (const d of callsSnap.docs) {
+                            try {
+                              const ocSnap = await getDocs(collection(db, "calls", d.id, "offerCandidates"));
+                              for (const c of ocSnap.docs) await deleteDoc(c.ref);
+                            } catch {}
+                            try {
+                              const acSnap = await getDocs(collection(db, "calls", d.id, "answerCandidates"));
+                              for (const c of acSnap.docs) await deleteDoc(c.ref);
+                            } catch {}
+                            await deleteDoc(d.ref);
+                          }
+
+                          setClearProgress("✅ All data cleared! Refreshing…");
+                          setTimeout(() => window.location.reload(), 2000);
+                        } catch (err) {
+                          console.error("Clear data error:", err);
+                          setClearProgress("❌ Error clearing data. Check console.");
+                          setClearing(false);
+                        }
+                      }}
+                    >
+                      {clearing ? "Deleting…" : "Yes, delete everything"}
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => { setShowClearConfirm(false); }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {clearProgress && (
+                    <p style={{fontSize:12,color:"#7f1d1d",fontWeight:600,marginTop:10}}>{clearProgress}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
