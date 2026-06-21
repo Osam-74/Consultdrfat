@@ -761,6 +761,7 @@ export default function AdminPage() {
         {/* ══ BOOKINGS ══ */}
         {tab==="bookings" && (
           <>
+
               {/* ── Filter buttons ── */}
               <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
                 {(["upcoming","past","archived"] as const).map(f => (

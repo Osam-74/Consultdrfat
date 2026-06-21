@@ -1,4 +1,4 @@
-const CACHE = "mindbridge-v2";
+const CACHE = "mindbridge-v3";
 const SHELL = ["/", "/manifest.webmanifest"];
 
 // Install — skip waiting to activate new SW immediately
@@ -11,12 +11,23 @@ self.addEventListener("install", (e) => {
   );
 });
 
-// Activate — clear ALL old caches
+// Activate — clear ALL old caches and notify clients to reload
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.map((k) => {
+        if (k !== CACHE) return caches.delete(k);
+        return Promise.resolve();
+      })))
       .then(() => self.clients.claim())
+      .then(() => {
+        // Notify all open clients that a new SW has taken over
+        return self.clients.matchAll({ type: "window" }).then(clients => {
+          clients.forEach(client => {
+            client.postMessage({ type: "SW_UPDATED" });
+          });
+        });
+      })
   );
 });
 

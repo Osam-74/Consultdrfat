@@ -21,13 +21,13 @@ export const viewport: Viewport = {
 // ── Service Worker Kill Switch ──────────────────────────────────────────────
 // Runs BEFORE React hydrates. Unregisters ALL existing service workers and
 // clears ALL caches. This fixes the "stale JS chunk" problem where the old
-// mindbridge-v1 SW (cache-first) was serving outdated JS after new deploys,
+// mindbridge-v1/v2 SW (cache-first) was serving outdated JS after new deploys,
 // causing React error #310 (Too many re-renders / hydration mismatch).
-// The new SW (mindbridge-v2, network-first) is registered afterwards by
+// The new SW (mindbridge-v3, network-first) is registered afterwards by
 // ServiceWorkerRegister. The kill switch only runs once per SW_VERSION.
 const SW_KILL_SWITCH = `
 (function() {
-  var SW_VERSION = 'mindbridge-v2';
+  var SW_VERSION = 'mindbridge-v3';
   var KEY = 'consultdrfat-sw-cleaned-' + SW_VERSION;
   try {
     if (localStorage.getItem(KEY)) {
