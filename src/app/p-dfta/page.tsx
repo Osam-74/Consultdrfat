@@ -242,6 +242,9 @@ export default function AdminPage() {
         const hasFreshPing = pingTime && typeof pingTime === "number" && (freshNow - pingTime) < 5 * 60 * 1000;
         // Show if: paid, not archived, not already in a live session, and either
         // within the time window OR has a fresh ping (actively waiting right now)
+        const sessionStatus = (b as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+        // Never show completed sessions in the waiting room
+        if (sessionStatus === "complete") return false;
         return b.status === "paid" && !b.archived && !b.inSession &&
           (ms >= windowStart && ms <= windowEnd || hasFreshPing);
       });
@@ -378,38 +381,39 @@ export default function AdminPage() {
 
   const upcomingToday = bookingsToday;
   const upcomingThisWeek = bookingsThisWeek;
-  // Completed count = archived paid bookings + completed-but-not-archived
+  // Completed count: either archived+paid OR sessionStatus=complete (not archived yet).
+  // These two sets are mutually exclusive — archived bookings are excluded from
+  // sessionStatuses map, and completedNotArchived are non-archived — so no double-count.
   const completedCount = bookings.filter(b => b.archived && b.status === "paid").length
-    + completedNotArchived.length
-    + bookings.filter(b => b.status === "paid" && b.completedAt && !b.archived && (sessionStatuses[b.id] ?? "none") !== "complete").length;
+    + completedNotArchived.length;
 
   // Earnings from ALL paid bookings — never reduced by archiving
   const totalEarnings = allPaid.reduce((a, b) => a + b.amountNGN, 0);
 
   // ── Consultation hours: total duration of all completed sessions ──
-  // Uses completedAt - session start (slotStart) for each completed session.
-  // Falls back to sessionLengthMin * 60s if completedAt is missing.
-  // Includes both active and archived completed sessions.
+  // Uses completedAt timestamp minus slotStart for actual duration.
+  // Falls back to sessionLengthMin if completedAt missing.
+  // Uses the booking doc's own cached `sessionStatus` field so archived
+  // bookings are counted correctly (they are excluded from sessionStatuses map).
   const consultationHours = (() => {
-    const completed = bookings.filter(b =>
-      b.status === "paid" &&
-      ((sessionStatuses[b.id] ?? "none") === "complete" || (b.archived && b.completedAt))
-    );
+    const completed = bookings.filter(b => {
+      if (b.status !== "paid") return false;
+      // Use cached sessionStatus on booking doc directly — works for both
+      // archived and non-archived bookings without extra Firestore reads.
+      const cachedStatus = (b as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+      const liveStatus = sessionStatuses[b.id];
+      return cachedStatus === "complete" || liveStatus === "complete";
+    });
     let totalSeconds = 0;
     completed.forEach(b => {
       const startMs = b.slotStart.toMillis();
-      // Use completedAt if available; otherwise use slotStart + sessionLengthMin
-      // Also check for extension minutes from the session offer
       const extMin = (b as unknown as Record<string, unknown>).extensionMinutes as number | undefined;
       const baseMin = extMin ? settings.sessionLengthMin + extMin : settings.sessionLengthMin;
       const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (baseMin * 60_000);
-      const durSec = Math.max(0, Math.round((endMs - startMs) / 1000));
-      totalSeconds += durSec;
+      totalSeconds += Math.max(0, Math.round((endMs - startMs) / 1000));
     });
-    // Always show with 1 decimal place (e.g. 0.3, 1.5, 2.0)
-    // This ensures even short sessions are visible
-    const hrs = totalSeconds / 3600;
-    return Math.round(hrs * 10) / 10;
+    // Round to 1 decimal (e.g. 0.5, 1.2, 3.0)
+    return Math.round((totalSeconds / 3600) * 10) / 10;
   })();
 
   // ── Active patients: unique clientIds who have made bookings ──
@@ -645,7 +649,7 @@ export default function AdminPage() {
           <div className="avail-layout">
             <div className="avail-top-note">
               <span>📌</span>
-              <span><strong>How scheduling works:</strong> Set recurring weekly hours as a base. Then use the calendar to override specific dates — add extra hours, or block a day off.</span>
+              <span>Set your available hours to let clients book seamlessly — add recurring weekly slots or override specific dates.</span>
             </div>
             <div className="avail-two-col">
               {/* Calendar */}
@@ -1104,7 +1108,7 @@ export default function AdminPage() {
                           {c.lastVisit && ` \u00b7 Last: ${MON[c.lastVisit.getMonth()]} ${c.lastVisit.getDate()}`}
                         </div>
                       </div>
-                      <span style={{fontSize:16,color:"var(--muted)"}}>\u2192</span>
+                      
                     </Link>
                   ))}
                 </div>
@@ -1244,7 +1248,12 @@ export default function AdminPage() {
                 ))}
               </div>
               <button className="btn btn-primary" style={{marginTop:14}} disabled={saving}
-                onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
+                onClick={async()=>{
+                  setSaving(true);
+                  try { await saveSettings(settings); await refresh(); }
+                  catch(e) { console.error("saveSettings:",e); alert("Save failed — check connection."); }
+                  finally { setSaving(false); }
+                }}>
                 {saving?"Saving…":"💾 Save Settings"}
               </button>
             </div>

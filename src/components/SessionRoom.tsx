@@ -94,6 +94,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [replyTo, setReplyTo] = useState<{ id: string; text: string; from: string } | null>(null);
   // ── Swipe-to-tag state ──
   const [swipedMsgId, setSwipedMsgId] = useState<string | null>(null);
+  // Mobile practitioner FAB
+  const [fabOpen, setFabOpen] = useState(false);
+  const fabRef = useRef<HTMLDivElement>(null);
+  const fabDragRef = useRef<{ startX: number; startY: number; elX: number; elY: number } | null>(null);
+  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
 
@@ -126,17 +131,32 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
-  // ── Presence heartbeat — ping every 10s regardless of session state ──
-  // Presence heartbeat — stop pinging when session is complete (saves quota).
-  // 60s interval = 1 write/min per user instead of 2/min. Threshold is 120s.
+  // ── Presence heartbeat — stop unconditionally when session is complete ──
+  // We use a ref to gate the interval so there is zero window where a "complete"
+  // status change could allow a stale interval to fire.
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
+    // Always clear any existing heartbeat first
+    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     if (!user) return;
-    if (session?.status === "complete") return; // stop pinging after session ends
+    // Hard stop: never ping on a completed or non-live session
+    const status = session?.status as string | undefined;
+    if (status === "complete") return;
     const uid = user.uid;
     pingPresence(bookingId, uid);
-    const interval = setInterval(() => pingPresence(bookingId, uid), 90_000);
-    return () => clearInterval(interval);
-  }, [bookingId, user, session?.status]);
+    heartbeatRef.current = setInterval(() => {
+      // Double-check inside the interval — session may have completed since interval started
+      if ((session?.status as string) === "complete") {
+        if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+        return;
+      }
+      pingPresence(bookingId, uid);
+    }, 90_000);
+    return () => {
+      if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, user?.uid, session?.status]);
 
   // Watch presence — re-check every 15s AND whenever session doc changes
   useEffect(() => {
@@ -455,6 +475,67 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       }
     } catch { /* non-fatal */ }
   };
+
+  // ── Incoming call ring tone ──
+  // Plays a gentle double "ding-dong" that loops until the call is answered/declined
+  const ringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringCtxRef = useRef<AudioContext | null>(null);
+
+  const playDingDong = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      ringCtxRef.current = ctx;
+      // Two-tone ding (higher) then dong (lower)
+      const tones = [
+        { freq: 880, start: 0,    dur: 0.25, vol: 0.18 },
+        { freq: 660, start: 0.35, dur: 0.3,  vol: 0.14 },
+      ];
+      tones.forEach(({ freq, start, dur, vol }) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(vol, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur + 0.05);
+      });
+    } catch { /* non-fatal */ }
+  };
+
+  const stopRing = () => {
+    if (ringIntervalRef.current) { clearInterval(ringIntervalRef.current); ringIntervalRef.current = null; }
+    try { ringCtxRef.current?.close(); } catch {}
+    ringCtxRef.current = null;
+  };
+
+  // Start/stop ringing based on callStatus.
+  // Ring ONLY for the callee (the one who did NOT initiate the call).
+  // Guard: if callCaller is still null (first snapshot not yet settled), skip
+  // this run — the effect re-fires once callCaller is populated.
+  useEffect(() => {
+    // Always stop ringing when not in a ringing state
+    if (callStatus !== "ringing" || voiceLive) {
+      stopRing();
+      return () => stopRing();
+    }
+    // callStatus === "ringing" here.
+    // If caller info not yet arrived, do nothing — re-fires when callCaller changes
+    if (callCaller === null) return () => {};
+    const weAreCallee = callCaller !== role;
+    if (weAreCallee) {
+      // We were called — ring immediately then loop every 2.2s
+      if (ringIntervalRef.current) clearInterval(ringIntervalRef.current);
+      playDingDong();
+      ringIntervalRef.current = setInterval(playDingDong, 2200);
+    } else {
+      // We are the caller — no ring for ourselves
+      stopRing();
+    }
+    return () => stopRing();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callStatus, callCaller, role, voiceLive]);
 
   // Check remaining time and fire beeps
   useEffect(() => {
@@ -793,50 +874,159 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       </div>
 
       <div className="stage">
-        <h2>Your session</h2>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+          <h2 style={{margin:0}}>Your session</h2>
+          {/* Leave / End Session — outside the box, right of heading */}
+          {isPract ? (
+            session?.status === "live" && (
+              <button
+                onClick={async () => {
+                  if (!confirm("End this session for both parties?")) return;
+                  try { await completeSession(bookingId); }
+                  catch (err) { console.error("End session error:", err); alert("Could not end session. Try again."); }
+                }}
+                style={{
+                  display:"flex",alignItems:"center",gap:6,padding:"7px 16px",
+                  borderRadius:10,border:"1.5px solid rgba(248,113,113,.55)",
+                  background:"rgba(248,113,113,.12)",color:"#F87171",
+                  fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                }}
+                onMouseOver={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.24)";}}
+                onMouseOut={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.12)";}}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                End Session
+              </button>
+            )
+          ) : (
+            <button
+              onClick={() => setShowLeaveConfirm(true)}
+              style={{
+                display:"flex",alignItems:"center",gap:6,padding:"7px 16px",
+                borderRadius:10,border:"1.5px solid rgba(248,113,113,.55)",
+                background:"rgba(248,113,113,.12)",color:"#F87171",
+                fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .15s",
+              }}
+              onMouseOver={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.24)";}}
+              onMouseOut={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.12)";}}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Leave
+            </button>
+          )}
+        </div>
         <p className="sub">{isPract ? "You are hosting your client." : "Your session with your practitioner."}</p>
 
         <div className="pane">
           <div className="pane-h">
+            {/* Avatar + online dot — no label text */}
             <div className="who">
-              <div className={"avatar " + (isPract ? "cl" : "dr")}>{isPract ? "CL" : "DR"}</div>
-              <div>
-                <div className="nm">{isPract ? "Your client" : "Your practitioner"}</div>
-                <div className="role" style={{display:"flex",alignItems:"center",gap:5}}>
-                  <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"#94a3b8",display:"inline-block",flexShrink:0}} />
-                  {otherOnline ? (voiceLive ? "Online · Voice connected" : "Online") : "Offline"}
-                </div>
+              <div style={{position:"relative",flexShrink:0}}>
+                <div className={"avatar " + (isPract ? "cl" : "dr")}>{isPract ? "CL" : "DR"}</div>
+                <span style={{
+                  position:"absolute",bottom:0,right:0,
+                  width:9,height:9,borderRadius:"50%",
+                  background:otherOnline?"#4ade80":"#94a3b8",
+                  border:"1.5px solid #1a2a4a",
+                  boxShadow:otherOnline?"0 0 0 2px rgba(74,222,128,.35)":"none",
+                  transition:"all .3s",
+                }} />
               </div>
-            </div>
-            <div className="conn" style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              <div style={{display:"flex",alignItems:"center",gap:5}}>
-                <span className={"led" + (complete ? " off" : "")} />
-                {complete ? "Time complete" : "Connected"}
-              </div>
-              {/* Mic feed visualizer — shows when your mic is transmitting */}
+              {/* Mic visualizer when transmitting */}
               {micOn && localStreamRef.current && (
-                <div style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"rgba(255,255,255,.55)"}}>
-                  <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:12}}>
-                    {[0.4,0.7,1,0.6,0.85].map((h,i) => (
-                      <div key={i} style={{
-                        width:3,height:`${h*scale*12}px`,borderRadius:2,
-                        background:`rgba(74,222,128,${0.5+h*0.5})`,
-                        transition:"height .1s",minHeight:2
-                      }} />
-                    ))}
-                  </div>
-                  <span>Mic live</span>
+                <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:12,marginLeft:6}}>
+                  {[0.4,0.7,1,0.6,0.85].map((h,i) => (
+                    <div key={i} style={{
+                      width:3,height:`${h*scale*12}px`,borderRadius:2,
+                      background:`rgba(74,222,128,${0.5+h*0.5})`,
+                      transition:"height .1s",minHeight:2
+                    }} />
+                  ))}
                 </div>
               )}
+            </div>
+            {/* Call + Video icons — flat SVG, right side */}
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {/* Voice call button */}
+              {sessionLive && (
+                voiceLive ? (
+                  /* Active call — red end button */
+                  <button
+                    onClick={handleEndCall}
+                    title="End voice call"
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,border:"1.5px solid rgba(248,113,113,.55)",
+                      background:"rgba(248,113,113,.18)",color:"#F87171",
+                      cursor:"pointer",transition:"all .15s",padding:0,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
+                    </svg>
+                  </button>
+                ) : callStatus === "ringing" && callCaller === role ? (
+                  /* Outgoing ringing — dim cancel button */
+                  <button
+                    onClick={handleEndCall}
+                    title="Cancel call"
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,border:"1.5px solid rgba(248,113,113,.3)",
+                      background:"rgba(248,113,113,.1)",color:"rgba(248,113,113,.7)",
+                      cursor:"pointer",transition:"all .15s",padding:0,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
+                    </svg>
+                  </button>
+                ) : (
+                  /* Idle / ended / declined — green start-call button always visible */
+                  <button
+                    onClick={handleStartCall}
+                    disabled={callConnecting || callStatus === "ringing"}
+                    title={callConnecting ? "Connecting…" : "Start voice call"}
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,
+                      border:"1.5px solid rgba(74,222,128,.45)",
+                      background:"rgba(255,255,255,.06)",
+                      color:"rgba(255,255,255,.75)",
+                      cursor: callConnecting ? "not-allowed" : "pointer",
+                      transition:"all .15s",padding:0,
+                      opacity: callConnecting ? 0.55 : 1,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.47 2 2 0 0 1 3.59 1.3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6.29 6.29l1.02-.88a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                    </svg>
+                  </button>
+                )
+              )}
+              {/* Video icon — visual only (no video in this version) */}
+              <div
+                title="Video not available in this version"
+                style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  width:36,height:36,borderRadius:10,border:"1.5px solid rgba(255,255,255,.12)",
+                  background:"rgba(255,255,255,.04)",color:"rgba(255,255,255,.25)",
+                  cursor:"not-allowed",padding:0,
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+              </div>
             </div>
           </div>
 
           {/* ── Voice panel with call/answer model ── */}
           <div className="voice">
             <div className={"timer num " + timerCls}>{fmt(remaining)}</div>
-            <div className="tl">{complete ? "Session time complete" : "Session time remaining"}</div>
+            <div className="tl tl-sm">{complete ? "Session time complete" : "Session time remaining"}</div>
             <div className="orb" style={{ transform: `scale(${scale})` }}>
-              {voiceLive ? (micOn ? "🎙️" : "🎧") : callStatus === "ringing" ? "📞" : "🎧"}
+              {voiceLive ? (micOn ? "🎙️" : "🔇") : callStatus === "ringing" ? "📞" : "🎙️"}
             </div>
             {!sessionLive && (
               <div className="session-not-started-banner">
@@ -1180,8 +1370,102 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           {renderOverlay()}
         </div>
 
-        {/* ── Practitioner dock ── */}
+        {/* ── Practitioner dock — desktop bar + mobile FAB ── */}
         {isPract && (
+          <>
+          {/* Mobile FAB — only shown on small screens via CSS */}
+          <div
+            ref={fabRef}
+            className={"pract-fab" + (fabOpen ? " open" : "")}
+            style={fabPos ? { bottom: "auto", right: "auto", left: fabPos.x, top: fabPos.y } : {}}
+            onPointerDown={(e) => {
+              const el = fabRef.current;
+              if (!el) return;
+              const rect = el.getBoundingClientRect();
+              fabDragRef.current = { startX: e.clientX, startY: e.clientY, elX: rect.left, elY: rect.top };
+              el.setPointerCapture(e.pointerId);
+              // Do NOT call preventDefault here — it would block tap/click events on child buttons
+            }}
+            onPointerMove={(e) => {
+              if (!fabDragRef.current) return;
+              const dx = e.clientX - fabDragRef.current.startX;
+              const dy = e.clientY - fabDragRef.current.startY;
+              if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+                const newX = Math.max(8, Math.min(window.innerWidth - 64, fabDragRef.current.elX + dx));
+                const newY = Math.max(8, Math.min(window.innerHeight - 64, fabDragRef.current.elY + dy));
+                setFabPos({ x: newX, y: newY });
+              }
+            }}
+            onPointerUp={(e) => {
+              const d = fabDragRef.current;
+              if (d) {
+                const dx = Math.abs(e.clientX - d.startX);
+                const dy = Math.abs(e.clientY - d.startY);
+                // Only toggle FAB if the tap target is the fab-toggle button (not a menu item)
+                const tgt = e.target as HTMLElement;
+                const isFabToggleBtn = tgt.closest(".fab-toggle") !== null;
+                if (dx < 6 && dy < 6 && isFabToggleBtn) setFabOpen(v => !v);
+              }
+              fabDragRef.current = null;
+            }}
+          >
+            {/* FAB toggle button — gear icon (SVG) */}
+            <button className="fab-toggle" aria-label="Practitioner controls">
+              {fabOpen
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              }
+            </button>
+            {fabOpen && (
+              <div className="fab-menu" onClick={e => e.stopPropagation()}>
+                {session.status !== "live" && (
+                  <button className="fab-action" onClick={() => { startSession(bookingId, session.durationMin); setFabOpen(false); }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                    Start Session
+                  </button>
+                )}
+                <button
+                  className={"fab-action" + (discountSent ? " fab-action-success" : "")}
+                  onClick={() => { setShowDiscount(!showDiscount); setDiscountSent(false); setFabOpen(false); }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+                  {discountSent ? "Discount Sent ✓" : "Give Discount"}
+                </button>
+                <button
+                  className={"fab-action" + (showNotes ? " fab-action-active" : "")}
+                  onClick={() => { setShowNotes(!showNotes); setFabOpen(false); }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  Session Notes
+                </button>
+                {sessionLive && (
+                  <button
+                    className="fab-action"
+                    onClick={() => { practFileRef.current?.click(); setFabOpen(false); }}
+                    disabled={practUploading}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    {practUploading ? "Uploading…" : "Share File"}
+                  </button>
+                )}
+                <button
+                  className={"fab-action fab-action-toggle" + (attachmentsOn ? " fab-action-active" : "")}
+                  onClick={() => setAttachmentsEnabled(bookingId, !attachmentsOn)}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  Client Uploads
+                  <span className={"fab-sw" + (attachmentsOn ? " on" : "")} />
+                </button>
+                {nextClientLabel && (
+                  <div className="fab-info">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Next at {nextClientLabel}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {/* Desktop dock — hidden on mobile */}
           <div className="dock">
             <span className="lbl">Controls</span>
             {session.status !== "live" && (
@@ -1189,16 +1473,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 Start session
               </button>
             )}
-            {session.status === "live" && (
-              <button className="dbtn" onClick={async () => {
-                try {
-                  await completeSession(bookingId);
-                } catch (err) {
-                  console.error("End session error:", err);
-                  alert("Could not end session. Check your connection and try again.");
-                }
-              }}>End now</button>
-            )}
+            {/* End session moved to top-right of "Your session" heading */}
 
             {/* Gift icon only — no text, tooltip explains */}
             <button
@@ -1295,6 +1570,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </div>
             )}
           </div>
+          </> /* end isPract fragment */
         )}
       </div>
 

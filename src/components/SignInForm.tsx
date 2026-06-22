@@ -196,6 +196,22 @@ export default function SignInForm({ title = "Sign In", subtitle = "Sign in to b
                   </div>
                 </div>
               )}
+              {/* Forgot password — directly under the password field, left-aligned, signin only */}
+              {mode === "signin" && (
+                <div style={{ marginTop: -6, marginBottom: 8, textAlign: "left" }}>
+                  <button
+                    type="button"
+                    onClick={() => go("reset")}
+                    style={{
+                      background: "none", border: "none", padding: 0,
+                      fontSize: 12.5, color: "var(--teal)", cursor: "pointer",
+                      fontWeight: 600, fontFamily: "inherit",
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
               {error && <div className="signin-error">⚠️ {error}</div>}
               <button type="submit" className="btn btn-primary btn-signin" disabled={busy}>
                 {busy
@@ -205,8 +221,6 @@ export default function SignInForm({ title = "Sign In", subtitle = "Sign in to b
               <div className="signin-footer">
                 {mode === "signin" ? (
                   <>
-                    <button type="button" onClick={() => go("reset")}>Forgot password?</button>
-                    <span style={{ margin: "0 8px", color: "var(--line)" }}>|</span>
                     <button type="button" onClick={() => go("register")}>Create account</button>
                     <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
                       By signing in you agree to our{" "}

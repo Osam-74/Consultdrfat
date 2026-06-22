@@ -89,6 +89,12 @@ export default function BookPage() {
 
       setSlots(generateSlots(s, t, e, taken));
       setReady(true);
+      // Auto-scroll to #sessions if coming from post-booking CTA
+      if (typeof window !== "undefined" && window.location.hash === "#sessions") {
+        setTimeout(() => {
+          document.getElementById("sessions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 400);
+      }
 
       if (user?.uid) {
         setRecentLoading(true);
@@ -253,8 +259,20 @@ export default function BookPage() {
           {selSlot && <><strong>{fmtSlot(selSlot.start)}</strong><br/></>}
           A confirmation email is on its way. You can join at your appointment time.
         </p>
-        <Link className="btn btn-primary btn-lg" href={`/session/?id=${bookingId}&role=client`}>🩺 Go to My Session Room</Link>
-        <p style={{ marginTop: 14 }}><Link href="/" style={{ color: "var(--teal)", fontSize: 14 }}>← Back to Home</Link></p>
+        <Link className="btn btn-primary btn-lg" href="/session-guide">
+          📖 Get Familiar with the Session Room
+        </Link>
+        <a
+          href="/book#sessions"
+          className="btn btn-ghost btn-lg"
+          style={{ marginTop: 10 }}
+        >
+          📋 View Your Sessions →
+        </a>
+        <p style={{ marginTop: 12, fontSize: 13, color: "var(--muted)", maxWidth: 320, textAlign:"center" }}>
+          Learn how your consultation works before your appointment — takes 2 minutes.
+        </p>
+        <p style={{ marginTop: 8 }}><Link href="/" style={{ color: "var(--teal)", fontSize: 13 }}>← Back to Home</Link></p>
       </div>
     );
   }
@@ -384,6 +402,11 @@ export default function BookPage() {
                               <span className={`recent-badge ${isLive ? "rb-live" : isUpcoming ? "rb-upcoming" : "rb-done"}`}>
                                 {isLive ? "● Live" : isUpcoming ? "Upcoming" : "Completed"}
                               </span>
+                              {sessionStatus === "completed" && bk.slotEnd && (
+                                <span style={{fontSize:11,color:"var(--muted)",marginLeft:2}}>
+                                  · {Math.round((bk.slotEnd.toMillis() - bk.slotStart.toMillis()) / 60000)}m
+                                </span>
+                              )}
                               {isLive && (
                                 <Link href={`/session/?id=${bk.id}&role=client`} className="btn btn-sm btn-primary">
                                   Rejoin →
@@ -554,7 +577,7 @@ export default function BookPage() {
                         type="text"
                         value={discountInput}
                         onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
-                        placeholder="DRFAT-XXXX"
+                        placeholder=""
                         style={{ flex: 1, fontFamily: "monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}
                       />
                       <button type="button" className="btn btn-ghost btn-sm" onClick={validateDiscount} disabled={!discountInput.trim() || discountValidating} style={{ whiteSpace: "nowrap" }}>
@@ -603,7 +626,7 @@ export default function BookPage() {
                 : "Please accept consent above"}
             </button>
             <div className="fine">
-              💳 Card · Bank Transfer · OPay · PalmPay via Paystack
+              💳 Card · Bank Transfer · USSD · Secure payment · Instant confirmation
             </div>
           </div>
         </div>
