@@ -7,12 +7,19 @@ import {
   setNextClient, setOffer, confirmExtension, sendMessage, getSettings,
   createDiscountCode, sendDiscountEmail, setAttachmentsEnabled, uploadSessionFile,
   getBookingById, pingPresence, getNextClientBooking,
-  clientLeftSession,
+  clientLeftSession, clientRejoinedSession,
   notifyPractitioner,
   requestExtension, clearExtRequest,
+  watchClientNotes, addClientNote,
 } from "@/lib/db";
+import type { ClientNote } from "@/lib/db";
 import { API_BASE } from "@/lib/firebase";
-import { startVoice, VoiceHandle } from "@/lib/webrtc";
+import {
+  startVoice, VoiceHandle,
+  initiateCall, answerCall, declineCall, endCall,
+  watchCallState, getMicStream,
+  type CallStatus,
+} from "@/lib/webrtc";
 import { useAuth } from "@/lib/auth";
 import { payNGN } from "@/lib/paystack";
 import { SessionDoc, Message, Role, DEFAULT_SETTINGS } from "@/lib/types";
@@ -24,7 +31,7 @@ function fmt(ms: number) {
   return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-const DISCOUNT_OPTIONS = [10, 20, 30, 50] as const;
+const DISCOUNT_OPTIONS = [25, 50, 75, 100] as const;
 
 export default function SessionRoom({ bookingId, role }: { bookingId: string; role: Role }) {
   const isPract = role === "practitioner";
@@ -41,11 +48,15 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [micOn, setMicOn] = useState(false);
   const [scale, setScale] = useState(1);
   const [voiceLive, setVoiceLive] = useState(false);
+  // ── Call state (new call/answer model) ──
+  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
+  const [callCaller, setCallCaller] = useState<Role | null>(null);
+  const [callConnecting, setCallConnecting] = useState(false);
   const [pricePerMin, setPricePerMin] = useState(DEFAULT_SETTINGS.priceNGN / DEFAULT_SETTINGS.sessionLengthMin);
 
   // Discount UI state (practitioner only)
   const [showDiscount, setShowDiscount] = useState(false);
-  const [discountPct, setDiscountPct] = useState<typeof DISCOUNT_OPTIONS[number]>(20);
+  const [discountPct, setDiscountPct] = useState<typeof DISCOUNT_OPTIONS[number]>(25);
   const [discountSending, setDiscountSending] = useState(false);
   const [discountSent, setDiscountSent] = useState(false);
   const [discountCode, setDiscountCode] = useState<string | null>(null);
@@ -54,6 +65,12 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [clientEmail, setClientEmail] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientUid, setClientUid] = useState("");
+
+  // ── Practitioner notes panel ──
+  const [showNotes, setShowNotes] = useState(false);
+  const [notes, setNotes] = useState<ClientNote[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
 
   // Presence — track who is online
   const [otherOnline, setOtherOnline] = useState(false);
@@ -75,6 +92,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // User can tap any message to quote-reply to it. The quoted message
   // appears above the composer and is sent as a reply reference.
   const [replyTo, setReplyTo] = useState<{ id: string; text: string; from: string } | null>(null);
+  // ── Swipe-to-tag state ──
+  const [swipedMsgId, setSwipedMsgId] = useState<string | null>(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
 
   // ── Client "Notify" ping button state ──
   // Client can ping the practitioner once every 5 minutes.
@@ -165,6 +186,203 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, isPract]);
 
+  // ── Practitioner notes subscription ──
+  // Watch notes for the client in real-time (only when we have the clientUid)
+  useEffect(() => {
+    if (!isPract || !clientUid) return;
+    const unsub = watchClientNotes(clientUid, setNotes);
+    return () => unsub();
+  }, [isPract, clientUid]);
+
+  // ── Save note handler ──
+  const handleSaveNote = async () => {
+    const text = noteDraft.trim();
+    if (!text || !clientUid) return;
+    setNoteSaving(true);
+    try {
+      await addClientNote(clientUid, text, bookingId);
+      setNoteDraft("");
+    } catch (err) {
+      console.error("Save note error:", err);
+      alert("Could not save note. Please try again.");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  // ── Call state subscription ──
+  // Watch the call document for incoming calls, connection status, etc.
+  useEffect(() => {
+    const unsub = watchCallState(bookingId, (state) => {
+      setCallStatus(state.status);
+      setCallCaller(state.caller ?? null);
+
+      // Auto-cleanup when call ends
+      if (state.status === "ended" || state.status === "declined") {
+        if (voiceRef.current) {
+          voiceRef.current.stop().catch(() => {});
+          voiceRef.current = null;
+        }
+        localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+        localStreamRef.current = null;
+        setVoiceLive(false);
+        setMicOn(false);
+        setCallConnecting(false);
+      }
+
+      // Mark voice live when connected
+      if (state.status === "connected") {
+        setVoiceLive(true);
+        setCallConnecting(false);
+      }
+    });
+    return () => unsub();
+  }, [bookingId]);
+
+  // ── Client join / rejoin notification ──
+  // First time: send "Client has joined" (neutral, not "rejoined").
+  // Subsequent entries after leaving: send "Client has rejoined".
+  // We use sessionStorage to track whether the client has left before.
+  const hasNotifiedJoinRef = useRef(false);
+  useEffect(() => {
+    if (!session || session.status !== "live" || isPract) return;
+    if (hasNotifiedJoinRef.current) return;
+    hasNotifiedJoinRef.current = true;
+    const leftBefore = sessionStorage.getItem(`left_session_${bookingId}`) === "1";
+    if (leftBefore) {
+      sessionStorage.removeItem(`left_session_${bookingId}`);
+      clientRejoinedSession(bookingId).catch(() => {});
+    } else {
+      // First join — send neutral "Client has joined" system message
+      clientRejoinedSession(bookingId, true).catch(() => {});
+    }
+  }, [session, isPract, bookingId]);
+
+  // ── Call handlers (new call/answer model) ──
+  const handleStartCall = async () => {
+    if (!sessionLive) return;
+    setCallConnecting(true);
+    try {
+      const stream = await getMicStream();
+      localStreamRef.current = stream;
+      setMicOn(true);
+
+      const handle = await initiateCall({
+        bookingId,
+        role,
+        localStream: stream,
+        onRemote: (remoteStream) => {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        },
+        onState: (s) => {
+          if (s === "connected") {
+            setVoiceLive(true);
+            setCallConnecting(false);
+          }
+        },
+      });
+      voiceRef.current = handle;
+
+      // Audio level visualizer
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!localStreamRef.current) return;
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += Math.abs(dataArray[i] - 128);
+        const avg = sum / dataArray.length / 128;
+        setScale(Math.max(0.85, Math.min(1.3, 1 + avg * 1.5)));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (err) {
+      console.error("Call initiation error:", err);
+      setCallConnecting(false);
+      alert("Could not start call. Please check your microphone permissions.");
+    }
+  };
+
+  const handleAnswerCall = async () => {
+    setCallConnecting(true);
+    try {
+      const stream = await getMicStream();
+      localStreamRef.current = stream;
+      setMicOn(true);
+
+      const handle = await answerCall({
+        bookingId,
+        role,
+        localStream: stream,
+        onRemote: (remoteStream) => {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.play().catch(() => {});
+          }
+        },
+        onState: (s) => {
+          if (s === "connected") {
+            setVoiceLive(true);
+            setCallConnecting(false);
+          }
+        },
+      });
+      voiceRef.current = handle;
+
+      // Audio visualizer
+      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!localStreamRef.current) return;
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += Math.abs(dataArray[i] - 128);
+        const avg = sum / dataArray.length / 128;
+        setScale(Math.max(0.85, Math.min(1.3, 1 + avg * 1.5)));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (err) {
+      console.error("Answer call error:", err);
+      setCallConnecting(false);
+      alert("Could not answer call. Please check your microphone permissions.");
+    }
+  };
+
+  const handleDeclineCall = async () => {
+    try {
+      await declineCall(bookingId, role);
+    } catch (err) {
+      console.error("Decline call error:", err);
+    }
+  };
+
+  const handleEndCall = async () => {
+    try {
+      if (voiceRef.current) {
+        await voiceRef.current.stop();
+        voiceRef.current = null;
+      }
+      localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+      localStreamRef.current = null;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      setMicOn(false);
+      setVoiceLive(false);
+      await endCall(bookingId, role);
+    } catch (err) {
+      console.error("End call error:", err);
+    }
+  };
+
   // ── Practitioner file upload handler ──
   const handlePractFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -218,6 +436,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Uses refs to ensure each warning fires exactly once per session.
   const beepedAt5MinRef = useRef(false);
   const beepedAt1MinRef = useRef(false);
+  const autoEndedRef = useRef(false);
   const playTimeWarningBeep = () => {
     try {
       const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -251,38 +470,37 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       beepedAt1MinRef.current = true;
       playTimeWarningBeep();
     }
+    // AUTO-END: When time runs out and session is still live,
+    // automatically end the call and block the session for the client.
+    // The practitioner can still offer an extension.
+    if (remainingMs <= 0 && !autoEndedRef.current) {
+      autoEndedRef.current = true;
+      // End voice call immediately
+      if (voiceRef.current) {
+        voiceRef.current.stop().catch(() => {});
+        voiceRef.current = null;
+      }
+      localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
+      localStreamRef.current = null;
+      setVoiceLive(false);
+      setMicOn(false);
+      // For client: auto-complete the session after 10 seconds if practitioner
+      // hasn't offered an extension
+      if (!isPract) {
+        setTimeout(() => {
+          // Check if an extension offer has been sent — if not, complete
+          watchSession(bookingId, (s) => {
+            if (s && s.status === "live" && (!s.offer || s.offer.status !== "sent")) {
+              completeSession(bookingId).catch(() => {});
+            }
+          })();
+        }, 10_000);
+      }
+    }
   }, [now, session]);
 
   // ── Voice ──
-  const joinVoice = async () => {
-    try {
-      // Request mic with echo cancellation & noise suppression
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 48000,
-        }
-      });
-      localStreamRef.current = stream;
-      setMicOn(true);
-      const voice = await startVoice({
-        bookingId, role,
-        localStream: stream,
-        onRemote: (remoteStream) => {
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = remoteStream;
-            remoteAudioRef.current.play().catch(() => {});
-          }
-        },
-      });
-      voiceRef.current = voice;
-      setVoiceLive(true);
-    } catch (err) {
-      console.error("Mic/voice error:", err);
-      alert("Could not access microphone. Please allow mic access and try again.");
-    }
-  };;
+  // joinVoice is replaced by handleStartCall / handleAnswerCall (call/answer model)
 
   const meter = (stream: MediaStream) => {
     try {
@@ -300,16 +518,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     } catch { /* non-fatal */ }
   };
 
-  const toggleMute = () => {
-    const tracks = localStreamRef.current?.getAudioTracks() ?? [];
-    if (tracks.length === 0) return;
-    const track = tracks[0];
-    const newEnabled = !track.enabled;
-    track.enabled = newEnabled;
-    setMicOn(newEnabled);
-    // The RTCRtpSender holds a reference to the same MediaStreamTrack object,
-    // so changing track.enabled above is sufficient — no need to touch senders.
-  };
+  // toggleMute is now inline in the call controls UI
 
   // ── Full media teardown on unmount ───────────────────────────────────
   useEffect(() => () => {
@@ -359,8 +568,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           // Re-join after a brief delay (only if user was in voice before)
           setTimeout(() => {
             if (voiceRef.current === null && localStreamRef.current === null) {
-              // User was in voice — re-join automatically
-              joinVoice();
+              // Voice auto-rejoin disabled in call/answer model
+              // User needs to click Call again to reconnect
             }
           }, 2000);
         }
@@ -413,9 +622,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       if (isPract) {
         window.location.href = "/p-dfta";
       } else {
-        window.location.href = "/";
+        window.location.href = "/?session=complete";
       }
-    }, 3500);
+    }, 4500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status]);
@@ -491,12 +700,37 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Show redirect screen when complete
   if (session.status === "complete") {
     return (
-      <div className="room-bg" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+      <div className="room-bg" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 20, textAlign: "center" }}>
         <div style={{ fontSize: 52 }}>✅</div>
         <h2 style={{ color: "#fff", margin: 0 }}>Session complete</h2>
-        <p style={{ color: "rgba(255,255,255,.6)", margin: 0, fontSize: 15 }}>
-          {isPract ? "Returning to your dashboard…" : "Returning to home…"}
-        </p>
+        {isPract ? (
+          <p style={{ color: "rgba(255,255,255,.6)", margin: 0, fontSize: 15 }}>
+            Returning to your dashboard…
+          </p>
+        ) : (
+          <>
+            <p style={{ color: "rgba(255,255,255,.7)", margin: 0, fontSize: 16, maxWidth: 320, lineHeight: 1.5 }}>
+              Thank you for your session! We hope it was helpful.
+            </p>
+            <p style={{ color: "rgba(255,255,255,.5)", margin: 0, fontSize: 14 }}>
+              You can book your next appointment anytime.
+            </p>
+            <Link href="/book" style={{
+              marginTop: 8, padding: "12px 28px", borderRadius: 12,
+              background: "var(--teal)", color: "#fff", fontWeight: 700,
+              fontSize: 15, textDecoration: "none",
+              display: "inline-flex", alignItems: "center", gap: 8,
+            }}>
+              📅 Book Another Session
+            </Link>
+            <Link href="/" style={{
+              marginTop: 4, color: "rgba(255,255,255,.5)", fontSize: 13,
+              textDecoration: "none",
+            }}>
+              ← Back to Home
+            </Link>
+          </>
+        )}
         <div style={{ width: 200, height: 4, background: "rgba(255,255,255,.15)", borderRadius: 99, overflow: "hidden", marginTop: 8 }}>
           <div style={{ height: "100%", background: "var(--teal)", borderRadius: 99, animation: "fillBar 3.2s linear forwards" }} />
         </div>
@@ -597,11 +831,13 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </div>
           </div>
 
-          {/* ── Voice panel — slightly smaller ── */}
+          {/* ── Voice panel with call/answer model ── */}
           <div className="voice">
             <div className={"timer num " + timerCls}>{fmt(remaining)}</div>
             <div className="tl">{complete ? "Session time complete" : "Session time remaining"}</div>
-            <div className="orb" style={{ transform: `scale(${scale})` }}>{micOn ? "🎙️" : "🎧"}</div>
+            <div className="orb" style={{ transform: `scale(${scale})` }}>
+              {voiceLive ? (micOn ? "🎙️" : "🎧") : callStatus === "ringing" ? "📞" : "🎧"}
+            </div>
             {!sessionLive && (
               <div className="session-not-started-banner">
                 {isPract ? "⏸ Press Start session below to begin" : "⏳ Waiting for practitioner to start the session…"}
@@ -633,31 +869,71 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 🔔 Notify
               </button>
             )}
-            <div className="vn">{voiceLive ? "Voice connected" : micOn ? "Mic ready" : sessionLive ? "Join voice to talk" : "Voice locked"}</div>
-            <div className="controls">
-              {!localStreamRef.current
-                ? <button className="ctl" onClick={joinVoice}
-                    disabled={!sessionLive}
-                    style={sessionLive ? {} : {opacity:.45, cursor:"not-allowed"}}
-                    title={sessionLive ? "Click to join voice" : "Waiting for session to start…"}>
-                    <span className="knob">🎧</span>{sessionLive ? "🔴 Join Voice" : "Waiting…"}
+
+            {/* ── Incoming call notification ── */}
+            {callStatus === "ringing" && callCaller !== role && !voiceLive && (
+              <div className="incoming-call-banner" style={{
+                marginTop: 12,
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: "linear-gradient(135deg,#0E8A7A,#0B2B4A)",
+                color: "#fff",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                alignItems: "center",
+                animation: "pingBlink 1.5s infinite",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  📞 {callCaller === "practitioner" ? "Dr. Fat" : "Client"} is calling you…
+                </div>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button
+                    onClick={handleAnswerCall}
+                    disabled={callConnecting}
+                    style={{
+                      padding: "8px 20px", borderRadius: 10, border: "none",
+                      background: "#22c55e", color: "#fff", fontWeight: 700,
+                      fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    📞 Answer
                   </button>
-                : <button className={"ctl" + (micOn ? "" : " muted")} onClick={toggleMute}>
-                    <span className="knob">🎙️</span>{micOn ? "Mute" : "Unmute"}
-                  </button>}
-              <button className="ctl danger"
-                onClick={() => {
-                  if (isPract) {
-                    completeSession(bookingId);
-                  } else {
-                    setShowLeaveConfirm(true);
-                  }
-                }}
-                disabled={!sessionLive && !isPract}
-              >
-                <span className="knob">✕</span>{isPract ? "End" : "Leave"}
-              </button>
+                  <button
+                    onClick={handleDeclineCall}
+                    style={{
+                      padding: "8px 20px", borderRadius: 10, border: "none",
+                      background: "#ef4444", color: "#fff", fontWeight: 700,
+                      fontSize: 13, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    ✕ Decline
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Calling... indicator (for caller while ringing) ── */}
+            {callStatus === "ringing" && callCaller === role && !voiceLive && (
+              <div style={{
+                marginTop: 8, fontSize: 12, color: "rgba(255,255,255,.6)",
+                display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+              }}>
+                <span style={{ animation: "pingBlink 1s infinite" }}>📞</span>
+                Calling… waiting for answer
+              </div>
+            )}
+
+            <div className="vn">
+              {voiceLive ? "Voice connected" :
+               callStatus === "ringing" ? (callCaller === role ? "Calling…" : "Incoming call") :
+               callConnecting ? "Connecting…" :
+               sessionLive ? "Click call to start voice" : "Voice locked"}
             </div>
+
+            {/* Call controls now in pane-h header */}
           </div>
 
           {/* ── Chat ── */}
@@ -670,13 +946,88 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   const isImage = m.fileUrl && m.fileType?.startsWith("image/");
                   const isDoc   = m.fileUrl && !isImage;
                   const canReply = m.from !== "system" && sessionLive;
+                  const isSwiped = swipedMsgId === m.id;
                   return (
                     <div
                       key={m.id}
+                      className={"msg-wrapper " + cls}
+                      style={{ marginBottom: 4 }}
+                    >
+                      {/* Swipe action button — left for mine (swiped left), right for theirs (swiped right) */}
+                      {canReply && (
+                        <button
+                          className="swipe-tag-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReplyTo({ id: m.id, text: m.text, from: m.from });
+                            setSwipedMsgId(null);
+                          }}
+                          style={{
+                            position: "absolute",
+                            ...(cls === "mine" ? { left: 4 } : { right: 4 }),
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            padding: "6px 10px",
+                            borderRadius: 8,
+                            border: "none",
+                            background: "var(--teal)",
+                            color: "#fff",
+                            fontSize: 13,
+                            cursor: "pointer",
+                            opacity: isSwiped ? 1 : 0,
+                            pointerEvents: isSwiped ? "auto" : "none",
+                            transition: "opacity .2s",
+                            zIndex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                            whiteSpace: "nowrap",
+                          }}
+                          title="Reply to this message"
+                        >
+                          ↩ Reply
+                        </button>
+                      )}
+                    <div
                       className={"msg " + cls}
-                      onClick={() => canReply && setReplyTo({ id: m.id, text: m.text, from: m.from })}
-                      style={canReply ? { cursor: "pointer" } : {}}
-                      title={canReply ? "Tap to reply" : undefined}
+                      onTouchStart={(e) => {
+                        if (!canReply) return;
+                        touchStartX.current = e.touches[0].clientX;
+                        touchStartY.current = e.touches[0].clientY;
+                      }}
+                      onTouchEnd={(e) => {
+                        if (!canReply) return;
+                        const dx = e.changedTouches[0].clientX - touchStartX.current;
+                        const dy = e.changedTouches[0].clientY - touchStartY.current;
+                        const isHoriz = Math.abs(dx) > Math.abs(dy) * 1.5;
+                        if (!isHoriz) return;
+                        // mine (right side) → swipe LEFT to reveal reply button
+                        // theirs (left side) → swipe RIGHT to reveal reply button
+                        const isMine = cls === "mine";
+                        if (isMine && dx < -40) {
+                          setSwipedMsgId(m.id);
+                        } else if (!isMine && dx > 40) {
+                          setSwipedMsgId(m.id);
+                        } else {
+                          setSwipedMsgId(null);
+                        }
+                      }}
+                      onClick={() => {
+                        // On desktop, click still works for reply
+                        if (canReply && !("ontouchstart" in window)) {
+                          setReplyTo({ id: m.id, text: m.text, from: m.from });
+                        }
+                        // Close swiped state on click
+                        if (isSwiped) setSwipedMsgId(null);
+                      }}
+                      style={{
+                        position: "relative",
+                        transform: isSwiped
+                          ? (cls === "mine" ? "translateX(-60px)" : "translateX(60px)")
+                          : "translateX(0)",
+                        transition: "transform .2s ease",
+                        zIndex: 2,
+                      }}
                     >
                       {/* Reply quote — shows the original message being replied to */}
                       {m.replyToText && (
@@ -740,6 +1091,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       {m.from !== "system" && (
                         <div className="t">{new Date(m.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                       )}
+                    </div>
                     </div>
                   );
                 })}
@@ -857,34 +1209,52 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               {discountSent ? "✓" : "🎁"}
             </button>
 
-            {/* Discount picker panel */}
+            {/* Discount picker panel — compact */}
             {showDiscount && (
-              <div className="discount-panel">
-                <div className="dp-title">Discount for client</div>
-                <div className="dp-row">
+              <div className="discount-panel" style={{minWidth:200}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,.8)"}}>Client Discount</span>
+                  <button onClick={()=>setShowDiscount(false)} style={{background:"none",border:"none",color:"rgba(255,255,255,.4)",cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button>
+                </div>
+                <div style={{display:"flex",gap:5,marginBottom:8}}>
                   {DISCOUNT_OPTIONS.map(p => (
                     <button
                       key={p}
-                      className={"dp-pct" + (discountPct === p ? " active" : "")}
                       onClick={() => setDiscountPct(p)}
+                      style={{
+                        flex:1,padding:"5px 0",borderRadius:7,border:"1.5px solid",
+                        fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                        background:discountPct===p?"var(--teal)":"transparent",
+                        color:discountPct===p?"#fff":"rgba(255,255,255,.65)",
+                        borderColor:discountPct===p?"var(--teal)":"rgba(255,255,255,.18)",
+                      }}
                     >{p}%</button>
                   ))}
                 </div>
                 <button
-                  className="dbtn primary"
-                  style={{ width: "100%", marginTop: 8 }}
+                  style={{
+                    width:"100%",padding:"8px 0",borderRadius:8,border:"none",
+                    background:"var(--teal)",color:"#fff",fontWeight:700,fontSize:13,
+                    cursor:discountSending?"not-allowed":"pointer",opacity:discountSending?.7:1,
+                    fontFamily:"inherit",
+                  }}
                   onClick={sendDiscount}
                   disabled={discountSending}
                 >
-                  {discountSending ? "Sending…" : `Send ${discountPct}% discount`}
+                  {discountSending ? "Sending…" : `Send ${discountPct}% off`}
                 </button>
-                {!clientEmail && (
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 6, textAlign: "center" }}>
-                    Waiting for client session data…
-                  </div>
-                )}
               </div>
             )}
+
+            {/* ── Practitioner Notes button + slide-in panel ── */}
+            <button
+              className={"dbtn icon-only" + (showNotes ? " active" : "")}
+              onClick={() => setShowNotes(!showNotes)}
+              title="View and add session notes for this client"
+              style={showNotes ? { background: "var(--teal)", color: "#fff" } : {}}
+            >
+              📝
+            </button>
 
             {/* Practitioner file share button */}
             {sessionLive && (
@@ -940,15 +1310,125 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </button>
             <button className="obtn red" onClick={async () => {
               setShowLeaveConfirm(false);
+              // End call if active
+              if (voiceRef.current) {
+                await handleEndCall();
+              }
+              // Mark left so on return we show "rejoined" not "joined"
+              sessionStorage.setItem(`left_session_${bookingId}`, "1");
+              // Send leave notification and update booking
               await clientLeftSession(bookingId).catch(() => {});
               voiceRef.current?.stop().catch(() => {});
               voiceRef.current = null;
               localStreamRef.current?.getTracks().forEach((tr) => { try { tr.stop(); } catch {} });
               localStreamRef.current = null;
-              window.location.href = "/";
+              window.location.href = "/?session=left";
             }}>
               Yes, leave session
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Practitioner Notes slide-in panel ── */}
+      {isPract && showNotes && (
+        <div className="notes-panel-overlay" onClick={() => setShowNotes(false)}>
+          <div className="notes-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="notes-panel-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 18 }}>📝</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "var(--navy)" }}>
+                    Session Notes
+                  </div>
+                  {clientName && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      {clientName}{clientEmail ? ` · ${clientEmail}` : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowNotes(false)}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  fontSize: 20, color: "var(--muted)", padding: 0,
+                }}
+                title="Close notes"
+              >×</button>
+            </div>
+
+            {/* Add new note */}
+            <div className="notes-add">
+              <textarea
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="Write a note about this client or session…"
+                style={{
+                  width: "100%", minHeight: 60, maxHeight: 120,
+                  border: "1.5px solid var(--line)", borderRadius: 10,
+                  padding: "10px 12px", fontSize: 13, fontFamily: "inherit",
+                  resize: "vertical", outline: "none", background: "var(--paper)",
+                  boxSizing: "border-box",
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleSaveNote();
+                  }
+                }}
+              />
+              <button
+                onClick={handleSaveNote}
+                disabled={!noteDraft.trim() || noteSaving || !clientUid}
+                style={{
+                  marginTop: 8, padding: "8px 16px", borderRadius: 10,
+                  border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13,
+                  background: (!noteDraft.trim() || noteSaving || !clientUid) ? "var(--line)" : "var(--teal)",
+                  color: (!noteDraft.trim() || noteSaving || !clientUid) ? "var(--muted)" : "#fff",
+                  transition: "all .15s",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {noteSaving ? "Saving…" : "+ Add note"}
+              </button>
+              {!clientUid && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                  Waiting for client data…
+                </div>
+              )}
+            </div>
+
+            {/* Past notes — scrollable list */}
+            <div className="notes-list">
+              {notes.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--muted)", fontSize: 13 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🗒️</div>
+                  No notes yet for this client.
+                  <br />
+                  Notes you write here will also appear on the client detail page.
+                </div>
+              ) : (
+                notes.map((note) => (
+                  <div key={note.id} className="note-card">
+                    <div className="note-text">{note.text}</div>
+                    <div className="note-meta">
+                      {new Date(note.createdAt.toMillis()).toLocaleDateString("en-NG", {
+                        day: "numeric", month: "short", year: "numeric",
+                      })} ·{" "}
+                      {new Date(note.createdAt.toMillis()).toLocaleTimeString("en-NG", {
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                      {note.bookingId && note.bookingId === bookingId && (
+                        <span style={{ marginLeft: 6, color: "var(--teal)", fontWeight: 600 }}>
+                          · this session
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -155,6 +155,69 @@ async function firestorePatch(
   }
 }
 
+/**
+ * Run a Firestore query via the REST API (runQuery).
+ * Returns array of document field maps.
+ */
+async function firestoreQuery(
+  projectId: string,
+  accessToken: string,
+  collectionPath: string,
+  filters: Array<{ field: string; op: string; value: unknown }>,
+  orderBy?: { field: string; direction: "ASCENDING" | "DESCENDING" }
+): Promise<Array<Record<string, unknown>>> {
+  const from = [{ collectionId: collectionPath.split("/").pop() }];
+
+  const filterParts = filters.map(f => {
+    const toFsValue = (v: unknown): unknown => {
+      if (typeof v === "string") return { stringValue: v };
+      if (typeof v === "number") return { integerValue: String(v) };
+      if (typeof v === "boolean") return { booleanValue: v };
+      return { stringValue: String(v) };
+    };
+    return {
+      fieldFilter: {
+        field: { fieldPath: f.field },
+        op: f.op,
+        value: toFsValue(f.value),
+      },
+    };
+  });
+
+  const body: Record<string, unknown> = {
+    structuredQuery: {
+      from,
+      where: filterParts.length === 1
+        ? filterParts[0]
+        : { compositeFilter: { op: "AND", filters: filterParts } },
+    },
+  };
+
+  if (orderBy) {
+    (body.structuredQuery as Record<string, unknown>).orderBy = [
+      { field: { fieldPath: orderBy.field }, direction: orderBy.direction },
+    ];
+  }
+
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Firestore query failed: ${res.status} ${err}`);
+  }
+  const data = await res.json() as Array<{ document?: { fields?: Record<string, unknown> } }>;
+  return data
+    .filter((r) => r.document?.fields)
+    .map((r) => r.document!.fields!);
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 export default {
@@ -166,13 +229,44 @@ export default {
       return new Response(null, { headers: cors(env.ALLOW_ORIGIN) });
     }
 
+    // ── Taken slots — returns all active booking start times ─────────────────
+    if (url.pathname === "/taken-slots" && req.method === "GET") {
+      try {
+        const token = await getFirebaseToken(env.FIREBASE_SA_JSON);
+        // Query bookings where status == "paid" OR status == "held"
+        // We need both — paid = confirmed, held = pending payment
+        const [paidDocs, heldDocs] = await Promise.all([
+          firestoreQuery(env.FIREBASE_PROJECT_ID, token, "bookings", [
+            { field: "status", op: "EQUAL", value: "paid" },
+          ]),
+          firestoreQuery(env.FIREBASE_PROJECT_ID, token, "bookings", [
+            { field: "status", op: "EQUAL", value: "held" },
+          ]),
+        ]);
+
+        const allDocs = [...paidDocs, ...heldDocs];
+        const takenSlots: number[] = [];
+        for (const fields of allDocs) {
+          // Extract slotStart timestamp value
+          const ss = fields.slotStart as { timestampValue?: string; integerValue?: string } | undefined;
+          if (ss?.timestampValue) {
+            takenSlots.push(new Date(ss.timestampValue).getTime());
+          }
+        }
+
+        return json({ taken: takenSlots }, env);
+      } catch (err) {
+        return json({ error: "Failed to fetch taken slots", detail: String(err) }, env, 500);
+      }
+    }
+
     // ── Root / health check ─────────────────────────────────────────────────────
     if ((url.pathname === "/" || url.pathname === "/health") && req.method === "GET") {
       return json({
         ok: true,
         service: "consultdrfat-api",
         ts: Date.now(),
-        endpoints: ["/health", "/verify", "/webhook", "/turn", "/upload", "/files/{key}"],
+        endpoints: ["/health", "/verify", "/webhook", "/turn", "/upload", "/files/{key}", "/taken-slots"],
       }, env);
     }
 

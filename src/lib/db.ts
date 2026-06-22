@@ -184,7 +184,21 @@ export async function clearInSession(bookingId: string): Promise<void> {
 export async function clientLeftSession(bookingId: string): Promise<void> {
   try {
     await sendMessage(bookingId, "system", "👋 Client has left the session.");
-    await updateDoc(doc(db, "bookings", bookingId), { inSession: false });
+    await updateDoc(doc(db, "bookings", bookingId), { inSession: false, clientPing: Date.now() });
+  } catch { /* non-fatal */ }
+}
+
+/** Notify when client enters the session room.
+ *  isFirstJoin=true → "Client has joined" (first time)
+ *  isFirstJoin=false/default → "Client has rejoined" (after leaving)
+ */
+export async function clientRejoinedSession(bookingId: string, isFirstJoin = false): Promise<void> {
+  try {
+    const msg = isFirstJoin
+      ? "✅ Client has joined the session."
+      : "↩️ Client has rejoined the session.";
+    await sendMessage(bookingId, "system", msg);
+    await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
   } catch { /* non-fatal */ }
 }
 
@@ -467,12 +481,12 @@ export interface DiscountCode {
   expiresAt: Timestamp;   // 90 days from creation
 }
 
-/** Generate a short alphanumeric code like "DRFAT-3X7K" */
+/** Generate a random 6-character alphanumeric discount code (no prefix) */
 function makeCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no confusing 0/O/1/I
-  let suffix = "";
-  for (let i = 0; i < 4; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
-  return `DRFAT-${suffix}`;
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
 }
 
 /**
@@ -709,12 +723,15 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
         const ms = b.slotStart.toMillis();
         const pingTime = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
         const hasFreshPing = pingTime && typeof pingTime === "number" && (freshNow - pingTime) < 5 * 60 * 1000;
+        // If client has a fresh ping, ALWAYS show them (even if inSession is true —
+        // they may have pinged from the session room before the practitioner started)
+        if (b.status === "paid" && !b.archived && hasFreshPing) return true;
         return (
           b.status === "paid" &&   // only confirmed-paid bookings
           !b.archived &&           // not archived by practitioner
           !b.inSession &&          // not already in a live session
           // within rolling window OR has a fresh ping (actively waiting right now)
-          ((ms >= freshStart && ms <= freshEnd) || hasFreshPing)
+          (ms >= freshStart && ms <= freshEnd)
         );
       });
     cb(rows);
@@ -828,4 +845,67 @@ export async function notifyPractitioner(bookingId: string): Promise<void> {
       clientPing: Date.now(),
     });
   } catch { /* non-fatal */ }
+}
+
+/* ─────────────────────── Client Notes ──────────────────────────
+   Practitioner can write notes about a client's consultation.
+   Notes are stored in /clients/{clientId}/notes subcollection.
+   Each note has: text, createdAt timestamp, optional bookingId.
+──────────────────────────────────────────────────────────────────── */
+
+export interface ClientNote {
+  id: string;
+  text: string;
+  createdAt: Timestamp;
+  bookingId?: string;
+}
+
+/** Watch all notes for a client in real-time */
+export function watchClientNotes(clientId: string, cb: (notes: ClientNote[]) => void) {
+  const q = query(
+    collection(db, "clients", clientId, "notes"),
+    orderBy("createdAt", "desc")
+  );
+  return onSnapshot(q, (snap) => {
+    const notes = snap.docs
+      .map(d => {
+        const data = d.data() as Omit<ClientNote, "id">;
+        // serverTimestamp() returns null until the server resolves it
+        // (takes ~1s). Skip notes with null createdAt to prevent crashes.
+        if (!data.createdAt) return null;
+        return { id: d.id, ...data };
+      })
+      .filter((n): n is ClientNote => n !== null);
+    cb(notes);
+  }, (err) => {
+    console.warn("[watchClientNotes]", err);
+  });
+}
+
+/** Add a new note for a client */
+export async function addClientNote(clientId: string, text: string, bookingId?: string): Promise<void> {
+  await addDoc(collection(db, "clients", clientId, "notes"), {
+    text,
+    bookingId: bookingId || null,
+    createdAt: serverTimestamp(),
+  });
+}
+
+/** Delete a note */
+export async function deleteClientNote(clientId: string, noteId: string): Promise<void> {
+  await deleteDoc(doc(db, "clients", clientId, "notes", noteId));
+}
+
+/** Get all bookings for a specific client (for client detail page) */
+export async function getClientBookingsById(clientId: string): Promise<Booking[]> {
+  const q = query(
+    collection(db, "bookings"),
+    where("clientId", "==", clientId),
+    orderBy("slotStart", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({
+    id: d.id,
+    ...(d.data() as Omit<Booking, "id">),
+  }));
 }

@@ -34,10 +34,8 @@ function calCells(base: Date): Date[] {
   return cells;
 }
 
-const BrandNav = ({ onSignOut, waitingCount, pingCount }: {
+const BrandNav = ({ onSignOut }: {
   onSignOut: () => void;
-  waitingCount: number;
-  pingCount: number;
 }) => (
   <nav className="nav" style={{borderBottom:"1px solid var(--line)",marginBottom:4}}>
     <Link href="/" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:10}} className="brand">
@@ -45,48 +43,19 @@ const BrandNav = ({ onSignOut, waitingCount, pingCount }: {
       <div className="brand-text"><span>ConsultDrFat</span><small>Practitioner Portal</small></div>
     </Link>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      {/* Waiting Room button — links to dedicated waiting room page */}
-      <Link
-        href="/waiting-room"
-        style={{
-          textDecoration:"none",
-          display:"flex",alignItems:"center",gap:6,
-          padding:"6px 12px", borderRadius:8, fontSize:13, fontWeight:600,
-          background: pingCount > 0 ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : undefined,
-          color: pingCount > 0 ? "#fff" : "var(--navy)",
-          border: pingCount > 0 ? "none" : "1px solid var(--line)",
-          transition: "all .2s",
-        }}
-        className="btn btn-ghost btn-sm"
-      >
-        🚪 Waiting Room
-        {waitingCount > 0 && (
-          <span style={{
-            background: pingCount > 0 ? "rgba(255,255,255,.25)" : "var(--teal)",
-            color: "#fff", borderRadius: 10, padding: "1px 7px",
-            fontSize: 11, fontWeight: 700, minWidth: 18, textAlign: "center",
-          }}>{waitingCount}</span>
-        )}
-        {pingCount > 0 && (
-          <span style={{
-            background:"#ef4444", borderRadius:"50%", width:8, height:8,
-            display:"inline-block", boxShadow:"0 0 0 2px #fff",
-            animation: "pingBlink 1s infinite",
-          }} />
-        )}
-      </Link>
       <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign Out</button>
     </div>
   </nav>
 );
 
 // ── Compact booking card with accordion expand ──────────────────────────────
-function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode }: {
+function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode, sessionStatus }: {
   b: Booking;
   onArchive: (id: string) => void;
   onPermanentDelete?: (id: string) => void;
   onUnarchive?: (id: string) => void;
   filterMode?: "upcoming" | "past" | "archived";
+  sessionStatus?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -109,9 +78,19 @@ function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode 
           <span className="brow-time">{d.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})} – {end.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>
         </div>
         <div className="brow-meta">
-          <span className={"status-pill " + b.status}>
-            {b.status === "paid" ? "✅ Confirmed" : b.status === "held" ? "⏳ Pending" : "❌ Cancelled"}
-          </span>
+          {(() => {
+            const ss = sessionStatus ?? "none";
+            const now = new Date();
+            if (b.status === "cancelled") return <span className="status-pill pill-cancelled">Cancelled</span>;
+            if (b.status === "held") return <span className="status-pill pill-held">Pending</span>;
+            if (b.archived && ss === "complete") return <span className="status-pill pill-completed">Completed</span>;
+            if (ss === "complete") return <span className="status-pill pill-completed">Completed</span>;
+            if (b.archived && b.slotStart.toDate() < now) return <span className="status-pill pill-noshown">No-Show</span>;
+            if (b.status === "paid" && b.slotStart.toDate() < now && ss !== "complete" && !b.archived) {
+              return <span className="status-pill pill-noshown">No-Show</span>;
+            }
+            return <span className="status-pill pill-confirmed">Confirmed</span>;
+          })()}
           <span className="brow-amount">{ngn(b.amountNGN)}</span>
         </div>
         <span className="brow-chevron" style={{transform: open ? "rotate(180deg)" : "none"}}>▾</span>
@@ -165,7 +144,7 @@ function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function AdminPage() {
   const { user, role, loading, signOut } = useAuth();
-  const [tab, setTab]               = useState<"availability"|"bookings"|"discounts"|"settings">("availability");
+  const [tab, setTab]               = useState<"availability"|"bookings"|"clients"|"discounts"|"settings">("availability");
   const [earningsFilter, setEarningsFilter] = useState<"week"|"month">("month");
   const [earningsFrom, setEarningsFrom] = useState("");
   const [earningsTo, setEarningsTo]   = useState("");
@@ -176,6 +155,10 @@ export default function AdminPage() {
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, "none"|"idle"|"live"|"complete">>({});
   const [discountCodes, setDiscountCodes]       = useState<DiscountCode[]>([]);
   const [saving, setSaving]         = useState(false);
+  const [clearing, setClearing]     = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearStep, setClearStep]   = useState<"idle"|"backup"|"delete"|"done">("idle");
+  const [clearProgress, setClearProgress] = useState("");
   // Horizontal calendar date picker for bookings tab
   const [calSelectedDate, setCalSelectedDate] = useState<string>(ymd(new Date()));
   const [bookingsFilter, setBookingsFilter] = useState<"upcoming"|"past"|"archived">("upcoming");
@@ -208,6 +191,9 @@ export default function AdminPage() {
   const [calMonth, setCalMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selDate, setSelDate]   = useState<string|null>(null);
   const [addWin, setAddWin]     = useState({ start:"09:00", end:"17:00" });
+  const [addingDay, setAddingDay] = useState<number | null>(null);
+  const [newWinStart, setNewWinStart] = useState("09:00");
+  const [newWinEnd, setNewWinEnd] = useState("17:00");
   const [saving2, setSaving2]   = useState(false);
 
   const refresh = useCallback(async () => {
@@ -365,10 +351,11 @@ export default function AdminPage() {
   // All bookings ever (including archived) for earnings — never reduce on archive
   const allPaid = bookings.filter(b => b.status === "paid");
 
-  // Upcoming = paid, not archived, session not complete yet
+  // Upcoming = paid, not archived, slot is in the future (> now), not complete
+  const nowTs = new Date();
   const upcoming = nonArchived.filter(b =>
     b.status === "paid" &&
-    b.slotStart.toDate() >= startOfToday &&
+    b.slotStart.toDate() > nowTs &&
     (sessionStatuses[b.id] ?? "none") !== "complete"
   );
   // Completed = session doc is "complete" (but not yet archived by practitioner)
@@ -411,13 +398,18 @@ export default function AdminPage() {
     let totalSeconds = 0;
     completed.forEach(b => {
       const startMs = b.slotStart.toMillis();
-      const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (settings.sessionLengthMin * 60_000);
+      // Use completedAt if available; otherwise use slotStart + sessionLengthMin
+      // Also check for extension minutes from the session offer
+      const extMin = (b as unknown as Record<string, unknown>).extensionMinutes as number | undefined;
+      const baseMin = extMin ? settings.sessionLengthMin + extMin : settings.sessionLengthMin;
+      const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (baseMin * 60_000);
       const durSec = Math.max(0, Math.round((endMs - startMs) / 1000));
       totalSeconds += durSec;
     });
-    // Return hours with 1 decimal place if less than 10 hours
+    // Always show with 1 decimal place (e.g. 0.3, 1.5, 2.0)
+    // This ensures even short sessions are visible
     const hrs = totalSeconds / 3600;
-    return hrs < 10 ? Math.round(hrs * 10) / 10 : Math.floor(hrs);
+    return Math.round(hrs * 10) / 10;
   })();
 
   // ── Active patients: unique clientIds who have made bookings ──
@@ -477,40 +469,126 @@ export default function AdminPage() {
   return (
     <div style={{minHeight:"100vh",background:"var(--paper)"}}>
       <div className="wrap">
-        <BrandNav onSignOut={signOut} waitingCount={waitingRoom.length} pingCount={pingCount} />
+        <BrandNav onSignOut={signOut} />
 
         {/* ── Ping notification banner ── */}
         {pingNotification && (
           <div style={{
-            position: "fixed", top: 16, right: 16, zIndex: 10000,
-            background: "linear-gradient(135deg,#0E8A7A,#0B2B4A)",
-            color: "#fff", borderRadius: 14, padding: "14px 18px",
-            boxShadow: "0 8px 32px rgba(14,138,122,.4)", maxWidth: 340,
-            display: "flex", alignItems: "center", gap: 12,
-            animation: "fadeSlideUp .3s ease",
+            position:"fixed",top:14,right:14,zIndex:10000,
+            background:"linear-gradient(135deg,#0E8A7A,#0B2B4A)",
+            color:"#fff",borderRadius:12,padding:"10px 14px",
+            boxShadow:"0 6px 24px rgba(14,138,122,.35)",maxWidth:300,
+            display:"flex",alignItems:"center",gap:10,
+            animation:"fadeSlideUp .25s ease",
           }}>
-            <span style={{ fontSize: 24, flexShrink: 0 }}>🔔</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{pingNotification.name} is waiting</div>
-              <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>Client pressed Notify — start the session</div>
+            <span style={{fontSize:20,flexShrink:0,animation:"bellDangle .5s ease-in-out infinite alternate",display:"inline-block",transformOrigin:"top center"}}>🔔</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{pingNotification.name} is waiting</div>
             </div>
             <Link href={`/session/?id=${pingNotification.bookingId}&role=practitioner`}
               style={{
-                background: "rgba(255,255,255,.2)", color: "#fff",
-                borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700,
-                textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
+                background:"rgba(255,255,255,.22)",color:"#fff",
+                borderRadius:7,padding:"5px 10px",fontSize:12,fontWeight:700,
+                textDecoration:"none",whiteSpace:"nowrap",flexShrink:0,
               }}>
-              Start →
+              Start
             </Link>
-            <button onClick={() => setPingNotification(null)}
-              style={{
-                background: "none", border: "none", color: "rgba(255,255,255,.6)",
-                cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0,
-              }}>×</button>
+            <button onClick={()=>setPingNotification(null)}
+              style={{background:"none",border:"none",color:"rgba(255,255,255,.55)",cursor:"pointer",fontSize:16,padding:0,flexShrink:0}}>×</button>
           </div>
         )}
 
+        {/* ── Return to active session banner ── */}
+        {(() => {
+          const activeSession = bookings.find(b =>
+            b.status === "paid" && !b.archived &&
+            sessionStatuses[b.id] === "live"
+          );
+          if (!activeSession) return null;
+          return (
+            <Link
+              href={`/session/?id=${activeSession.id}&role=practitioner`}
+              style={{
+                display: "flex", alignItems: "center", gap: 12, width: "100%",
+                textDecoration: "none",
+                background: "linear-gradient(135deg,#dc2626,#991b1b)",
+                color: "#fff", borderRadius: 16, padding: "14px 20px",
+                marginBottom: 14, boxShadow: "0 4px 16px rgba(220,38,38,.3)",
+                transition: "all .2s", cursor: "pointer",
+              }}
+            >
+              <span style={{
+                width: 10, height: 10, borderRadius: "50%",
+                background: "#fff", display: "inline-block", flexShrink: 0,
+                animation: "pingBlink 1s infinite",
+              }} />
+              <span style={{ fontWeight: 700, fontSize: 14 }}>🔴 Session in progress</span>
+              <span style={{ fontSize: 12, opacity: 0.9, marginLeft: "auto", whiteSpace: "nowrap" }}>
+                Return to session →
+              </span>
+            </Link>
+          );
+        })()}
 
+
+        {/* ── Waiting Room Bar ── */}
+        {(() => {
+          const now_ = Date.now();
+          const hasFreshPing = waitingRoom.some(b => {
+            const pt = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+            return pt && typeof pt === "number" && (now_ - pt) < 5 * 60 * 1000;
+          });
+          const hasClients = waitingRoom.length > 0;
+          return (
+            <Link
+              href="/waiting-room"
+              style={{
+                display:"flex", alignItems:"center", gap:10, width:"100%",
+                textDecoration:"none",
+                background: hasClients ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : "#fff",
+                color: hasClients ? "#fff" : "var(--navy)",
+                border: hasClients ? "none" : "1px solid var(--line)",
+                borderRadius:16, padding:"12px 18px",
+                marginBottom:14, boxShadow:"var(--shadow-sm)",
+                transition:"all .2s", cursor:"pointer", position:"relative",
+              }}
+            >
+              {/* Pulsing dot — only when clients are present */}
+              <span style={{
+                width:10,height:10,borderRadius:"50%",flexShrink:0,
+                background: hasClients ? "#fff" : "var(--muted)",
+                animation: hasClients ? "wrPulse 1.5s ease-in-out infinite" : "none",
+                boxShadow: hasClients ? "0 0 0 3px rgba(255,255,255,.25)" : "none",
+                transition:"all .3s",
+              }} />
+              <span style={{fontWeight:700,fontSize:14,flex:1}}>Waiting Room</span>
+              {hasClients ? (
+                <span style={{
+                  fontSize:12, fontWeight:700,
+                  background:"rgba(255,255,255,.2)",
+                  color:"#fff", borderRadius:999, padding:"2px 10px",
+                }}>
+                  {waitingRoom.length} waiting
+                </span>
+              ) : (
+                <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
+              )}
+              {/* Bell icon — dangles for 5 min on ping */}
+              {hasFreshPing && (
+                <span
+                  style={{
+                    fontSize:18,
+                    animation:"bellDangle 0.5s ease-in-out infinite alternate",
+                    transformOrigin:"top center",
+                    display:"inline-block",
+                    marginLeft:4,
+                  }}
+                  title="A client just pinged!"
+                >🔔</span>
+              )}
+            </Link>
+          );
+        })()}
 
         {/* Stats grid — Upcoming full width on top, then 4 stats below in one row */}
         <div className="dash-stats-grid">
@@ -532,7 +610,7 @@ export default function AdminPage() {
             <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>✅</div>
             <div style={{minWidth:0}}>
               <div className="stat-val" style={{color:"var(--navy)"}}>{completedCount}</div>
-              <div className="stat-lbl">Completed</div>
+              <div className="stat-lbl">Completed Sessions</div>
             </div>
           </div>
           {/* Consultation Hours — total duration of all completed sessions */}
@@ -555,9 +633,9 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="adminbar">
-          {(["availability","bookings","discounts","settings"] as const).map(t=>(
+          {(["availability","bookings","clients","discounts","settings"] as const).map(t=>(
             <button key={t} className={"tabbtn"+(tab===t?" active":"")} onClick={()=>setTab(t)}>
-              {t==="availability"?"🗓 Availability":t==="bookings"?"📋 Bookings":t==="discounts"?"🎁 Discounts":"⚙️ Settings"}
+              {t==="availability"?"🗓 Availability":t==="bookings"?"📋 Bookings":t==="clients"?"👥 Clients":t==="discounts"?"🎁 Discounts":"⚙️ Settings"}
             </button>
           ))}
         </div>
@@ -700,7 +778,50 @@ export default function AdminPage() {
                               </div>
                             ))}
                           </div>
-                          <button className="week-add-btn" onClick={async()=>{await saveTemplate({weekday:dayIdx,start:"09:00",end:"17:00",active:true});refresh();}}>+ Add</button>
+                          {addingDay === dayIdx ? (
+                            <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
+                              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                                <input
+                                  type="time"
+                                  value={newWinStart}
+                                  onChange={e=>setNewWinStart(e.target.value)}
+                                  style={{fontSize:12,padding:"4px 6px",borderRadius:6,border:"1px solid var(--line)",width:"auto"}}
+                                />
+                                <span style={{fontSize:11,color:"var(--muted)"}}>to</span>
+                                <input
+                                  type="time"
+                                  value={newWinEnd}
+                                  onChange={e=>setNewWinEnd(e.target.value)}
+                                  style={{fontSize:12,padding:"4px 6px",borderRadius:6,border:"1px solid var(--line)",width:"auto"}}
+                                />
+                              </div>
+                              <div style={{display:"flex",gap:6}}>
+                                <button
+                                  className="btn btn-primary btn-sm"
+                                  style={{fontSize:11,padding:"4px 10px"}}
+                                  onClick={async()=>{
+                                    await saveTemplate({weekday:dayIdx,start:newWinStart,end:newWinEnd,active:true});
+                                    await refresh();
+                                    setAddingDay(null);
+                                  }}
+                                >Save</button>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  style={{fontSize:11,padding:"4px 10px"}}
+                                  onClick={()=>setAddingDay(null)}
+                                >Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              className="week-add-btn"
+                              onClick={()=>{
+                                setNewWinStart("09:00");
+                                setNewWinEnd("17:00");
+                                setAddingDay(dayIdx);
+                              }}
+                            >+ Add</button>
+                          )}
                         </div>
                       );
                     })}
@@ -714,63 +835,6 @@ export default function AdminPage() {
         {/* ══ BOOKINGS ══ */}
         {tab==="bookings" && (
           <>
-            {/* ── Waiting Room Widget ── */}
-            <div className={"wr-widget" + (waitingRoomOpen ? " open" : "")}>
-              <button
-                className="wr-widget-toggle"
-                onClick={() => setWaitingRoomOpen(v => !v)}
-              >
-                <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-                  {waitingRoom.length > 0 && <div className="wr-pulse-dot" />}
-                  <span style={{fontWeight:700,fontSize:14}}>🚪 Waiting Room</span>
-                  {waitingRoom.length > 0 ? (
-                    <span className="wr-count">{waitingRoom.length} client{waitingRoom.length!==1?"s":""} waiting</span>
-                  ) : (
-                    <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
-                  )}
-                </div>
-                <span style={{fontSize:13,color:"var(--muted-2)",transform:waitingRoomOpen?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
-              </button>
-              {waitingRoomOpen && (
-                <div className="wr-widget-body">
-                  {waitingRoom.length === 0 ? (
-                    <p style={{color:"var(--muted)",fontSize:13,textAlign:"center",padding:"12px 0"}}>No clients waiting right now.</p>
-                  ) : (
-                    <div className="wr-list">
-                      {waitingRoom.map(b => {
-                        const d = b.slotStart.toDate();
-                        const sessStatus = waitingSessions[b.id] ?? "none";
-                        const isLiveAlready = sessStatus === "live";
-                        return (
-                          <div key={b.id} className="wr-card">
-                            <div className="wr-avatar">{b.clientName?.[0] ?? "?"}</div>
-                            <div className="wr-info">
-                              <div className="wr-name">{b.clientName}</div>
-                              <div className="wr-slot">📅 {fmtDT(d)}</div>
-                              {b.topic && <div className="wr-topic">💬 {b.topic}</div>}
-                            </div>
-                            <div className="wr-actions">
-                              {isLiveAlready && <span className="wr-live-badge">● Live</span>}
-                              <Link href={`/session/?id=${b.id}&role=practitioner`} className="btn btn-sm btn-primary">
-                                {isLiveAlready ? "Rejoin" : "Start Session →"}
-                              </Link>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="card" style={{marginTop:0}}>
-              <div className="card-header" style={{marginBottom:16}}>
-                <div>
-                  <h3>📋 Bookings</h3>
-                  <p className="card-sub">View upcoming, past, and archived sessions</p>
-                </div>
-              </div>
 
               {/* ── Filter buttons ── */}
               <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -806,7 +870,7 @@ export default function AdminPage() {
                     <div
                       ref={calStripRef}
                       style={{
-                        display:"flex", gap:8, overflowX:"auto", scrollSnapType:"x mandatory",
+                        display:"flex", gap:4, overflowX:"auto", scrollSnapType:"x mandatory",
                         flex:1, paddingBottom:4, scrollbarWidth:"thin",
                         WebkitOverflowScrolling:"touch",
                       }}
@@ -825,8 +889,8 @@ export default function AdminPage() {
                             key={ds}
                             onClick={() => setCalSelectedDate(ds)}
                             style={{
-                              flexShrink:0, width:44, paddingTop:7, paddingBottom:7,
-                              borderRadius:10, border:"2px solid", cursor:"pointer",
+                              flexShrink:0, width:32, paddingTop:5, paddingBottom:5,
+                              borderRadius:8, border:"2px solid", cursor:"pointer",
                               display:"flex", flexDirection:"column", alignItems:"center", gap:1,
                               scrollSnapAlign:"start",
                               borderColor: isSel ? "var(--teal)" : isToday ? "rgba(14,138,122,.3)" : "#e8edf3",
@@ -835,7 +899,7 @@ export default function AdminPage() {
                               transition:"all .2s",
                             }}
                           >
-                            <span style={{fontSize:8,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
+                            <span style={{fontSize:7,fontWeight:600,textTransform:"uppercase",opacity:.7}}>
                               {DOW_SHORT[d.getDay()]}
                             </span>
                             <span style={{fontSize:15,fontWeight:800}}>
@@ -907,7 +971,7 @@ export default function AdminPage() {
                         </div>
                         <div className="booking-compact-list">
                           {dayBookings.map(b => (
-                            <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="upcoming" />
+                            <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="upcoming" sessionStatus={sessionStatuses[b.id]} />
                           ))}
                         </div>
                       </>
@@ -935,7 +999,7 @@ export default function AdminPage() {
                   return (
                     <div className="booking-compact-list">
                       {pastBookings.map(b => (
-                        <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="past" />
+                        <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="past" sessionStatus={sessionStatuses[b.id]} />
                       ))}
                     </div>
                   );
@@ -965,14 +1029,88 @@ export default function AdminPage() {
                           onPermanentDelete={handlePermanentDelete}
                           onUnarchive={handleUnarchive}
                           filterMode="archived"
+                          sessionStatus={sessionStatuses[b.id]}
                         />
                       ))}
                     </div>
                   );
                 })()
               )}
-            </div>
           </>
+        )}
+
+        {/* ══ CLIENTS ══ */}
+        {tab==="clients" && (
+          <div className="card">
+            <div className="card-header" style={{marginBottom:16}}>
+              <div>
+                <h3>👥 Clients</h3>
+                <p className="card-sub">Click a client to view their info and add consultation notes</p>
+              </div>
+            </div>
+            {(() => {
+              const clientMap = new Map<string, { id: string; name: string; email: string; bookingCount: number; lastVisit?: Date }>();
+              bookings.forEach(b => {
+                if (!b.clientId) return;
+                const existing = clientMap.get(b.clientId);
+                if (existing) {
+                  existing.bookingCount++;
+                  const d = b.slotStart.toDate();
+                  if (!existing.lastVisit || d > existing.lastVisit) existing.lastVisit = d;
+                } else {
+                  clientMap.set(b.clientId, {
+                    id: b.clientId,
+                    name: b.clientName || "Unknown",
+                    email: b.clientEmail || "",
+                    bookingCount: 1,
+                    lastVisit: b.slotStart.toDate(),
+                  });
+                }
+              });
+              const clientList = Array.from(clientMap.values()).sort((a,b) =>
+                (b.lastVisit?.getTime() ?? 0) - (a.lastVisit?.getTime() ?? 0)
+              );
+
+              if (clientList.length === 0) {
+                return <p style={{color:"var(--muted)",fontSize:14,textAlign:"center",padding:"24px 0"}}>No clients yet.</p>;
+              }
+
+              return (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {clientList.map(c => (
+                    <Link
+                      key={c.id}
+                      href={`/clients/${c.id}`}
+                      style={{
+                        display:"flex",alignItems:"center",gap:14,
+                        padding:"14px 16px", borderRadius:12,
+                        border:"1px solid var(--line)", background:"#fff",
+                        textDecoration:"none", cursor:"pointer",
+                        transition:"all .15s",
+                      }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor="var(--teal)"; e.currentTarget.style.background="#f0fdfa"; }}
+                      onMouseOut={e => { e.currentTarget.style.borderColor="var(--line)"; e.currentTarget.style.background="#fff"; }}
+                    >
+                      <div style={{
+                        width:42, height:42, borderRadius:"50%", flexShrink:0,
+                        background:"linear-gradient(135deg,var(--teal),var(--sky))",
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        fontSize:17, fontWeight:700, color:"#fff",
+                      }}>{c.name?.[0]?.toUpperCase() ?? "?"}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:14,color:"var(--navy)"}}>{c.name}</div>
+                        <div style={{fontSize:12,color:"var(--muted)"}}>
+                          {c.bookingCount} session{c.bookingCount!==1?"s":""}
+                          {c.lastVisit && ` \u00b7 Last: ${MON[c.lastVisit.getMonth()]} ${c.lastVisit.getDate()}`}
+                        </div>
+                      </div>
+                      <span style={{fontSize:16,color:"var(--muted)"}}>\u2192</span>
+                    </Link>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
         )}
 
         {/* ══ SETTINGS ══ */}
@@ -985,39 +1123,42 @@ export default function AdminPage() {
               </div>
             </div>
             {discountCodes.length === 0 ? (
-              <div className="empty-state">
-                <div style={{fontSize:32,marginBottom:8}}>🎫</div>
-                <p style={{color:"var(--muted)"}}>No discounts issued yet. Send one from inside a session.</p>
+              <div className="empty-state" style={{padding:"24px 0",textAlign:"center"}}>
+                <div style={{fontSize:28,marginBottom:6}}>🎫</div>
+                <p style={{color:"var(--muted)",fontSize:13}}>No discounts issued yet. Send one from inside a session.</p>
               </div>
             ) : (
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",flexDirection:"column",gap:7}}>
                 {discountCodes.slice().sort((a,b)=>b.createdAt.toMillis()-a.createdAt.toMillis()).map(dc => {
-                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
-                  const issued = dc.createdAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
+                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short"});
+                  const now_ = Date.now();
+                  const isActive = !dc.used && dc.expiresAt.toMillis() >= now_;
+                  const isExpired = !dc.used && dc.expiresAt.toMillis() < now_;
                   return (
                     <div key={dc.id} style={{
-                      display:"flex",alignItems:"center",gap:12,padding:"12px 16px",
-                      borderRadius:12,background:"#f8fafc",border:"1px solid #e8edf3",flexWrap:"wrap"
+                      display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                      borderRadius:10,background:"#f8fafc",border:"1px solid #e8edf3",
                     }}>
+                      {/* Percent badge */}
                       <div style={{
-                        minWidth:56,textAlign:"center",padding:"6px 10px",borderRadius:8,
-                        background: dc.used ? "#f0f0f0" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
-                        color: dc.used ? "#999" : "#fff",fontWeight:800,fontSize:15,letterSpacing:".04em"
+                        width:42,height:42,borderRadius:8,display:"flex",flexDirection:"column",
+                        alignItems:"center",justifyContent:"center",flexShrink:0,
+                        background: dc.used ? "#f0f0f0" : isExpired ? "#fef9ec" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
+                        color: dc.used ? "#aaa" : isExpired ? "#b45309" : "#fff",
                       }}>
-                        {dc.percent}%
+                        <span style={{fontWeight:800,fontSize:14,lineHeight:1}}>{dc.percent}%</span>
+                        <span style={{fontSize:9,fontWeight:600,opacity:.75}}>OFF</span>
                       </div>
-                      <div style={{flex:1,minWidth:140}}>
-                        <div style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".06em",fontFamily:"monospace"}}>
-                          {dc.code}
-                          {dc.used && <span style={{marginLeft:8,fontSize:11,fontWeight:500,color:"#999",fontFamily:"sans-serif"}}>Used</span>}
-                          {!dc.used && dc.expiresAt.toMillis() < Date.now() && <span style={{marginLeft:8,fontSize:11,fontWeight:500,color:"#e53e3e",fontFamily:"sans-serif"}}>Expired</span>}
-                          {!dc.used && dc.expiresAt.toMillis() >= Date.now() && <span style={{marginLeft:8,fontSize:11,fontWeight:600,color:"#0E8A7A",fontFamily:"sans-serif"}}>Active</span>}
+                      {/* Code + meta */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".05em",fontFamily:"monospace"}}>{dc.code}</span>
+                          {dc.used && <span style={{fontSize:10,fontWeight:700,background:"#f0f0f0",color:"#888",borderRadius:999,padding:"1px 7px"}}>USED</span>}
+                          {isExpired && <span style={{fontSize:10,fontWeight:700,background:"#fef9ec",color:"#b45309",borderRadius:999,padding:"1px 7px"}}>EXPIRED</span>}
+                          {isActive && <span style={{fontSize:10,fontWeight:700,background:"rgba(14,138,122,.1)",color:"#0E8A7A",borderRadius:999,padding:"1px 7px"}}>ACTIVE</span>}
                         </div>
-                        <div style={{fontSize:12,color:"var(--muted)",marginTop:3}}>
-                          For: <strong>{dc.createdForName}</strong> ({dc.createdFor})
-                        </div>
-                        <div style={{fontSize:11,color:"var(--muted-2)",marginTop:2}}>
-                          Issued {issued} · Expires {exp}
+                        <div style={{fontSize:11,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {dc.createdForName} · exp {exp}
                         </div>
                       </div>
                     </div>
@@ -1106,6 +1247,172 @@ export default function AdminPage() {
                 onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
                 {saving?"Saving…":"💾 Save Settings"}
               </button>
+            </div>
+
+            {/* ── Data Management (Testing Mode) ── */}
+            <div className="card" style={{borderColor:"#fbbf24",borderWidth:2}}>
+              <div className="card-header" style={{marginBottom:16}}>
+                <div>
+                  <h3 style={{color:"#f59e0b"}}>⚠️ Data Management (Testing)</h3>
+                  <p className="card-sub">Backup or clear all test data before going live.</p>
+                </div>
+              </div>
+
+              {clearStep === "idle" && !showClearConfirm && (
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <p style={{fontSize:13,color:"var(--muted)",lineHeight:1.6}}>
+                    Use this to start fresh before launching. <strong>Backup</strong> downloads all data as JSON.
+                    <strong> Clear Database</strong> deletes all bookings, sessions, messages, notes, and discount codes permanently.
+                  </p>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <button
+                      className="btn btn-ghost"
+                      style={{borderColor:"var(--teal)",color:"var(--teal)"}}
+                      disabled={clearing}
+                      onClick={async () => {
+                        setClearing(true);
+                        setClearProgress("Backing up data…");
+                        try {
+                          const { db } = await import("@/lib/firebase");
+                          const { collection, getDocs } = await import("firebase/firestore");
+
+                          const backup: Record<string, unknown> = { timestamp: new Date().toISOString() };
+
+                          try {
+                            const snap = await getDocs(collection(db, "bookings"));
+                            backup.bookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                          } catch (e) { backup.bookings = `Error: ${e}`; }
+
+                          try {
+                            const snap = await getDocs(collection(db, "discountCodes"));
+                            backup.discountCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                          } catch (e) { backup.discountCodes = `Error: ${e}`; }
+
+                          try {
+                            const snap = await getDocs(collection(db, "settings"));
+                            backup.settings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                          } catch (e) { backup.settings = `Error: ${e}`; }
+
+                          const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `consultdrfat-backup-${new Date().toISOString().split("T")[0]}.json`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          setClearProgress("Backup downloaded!");
+                        } catch (err) {
+                          console.error("Backup error:", err);
+                          alert("Backup failed. Check console for details.");
+                        } finally {
+                          setClearing(false);
+                          setTimeout(() => setClearProgress(""), 3000);
+                        }
+                      }}
+                    >
+                      📦 Backup Data (JSON)
+                    </button>
+                    <button
+                      className="btn"
+                      style={{background:"#ef4444",color:"#fff",borderColor:"#ef4444"}}
+                      onClick={() => setShowClearConfirm(true)}
+                    >
+                      🗑️ Clear All Data
+                    </button>
+                  </div>
+                  {clearProgress && (
+                    <p style={{fontSize:12,color:"var(--teal)",fontWeight:600}}>{clearProgress}</p>
+                  )}
+                </div>
+              )}
+
+              {showClearConfirm && (
+                <div style={{
+                  background:"#fef2f2",borderRadius:12,padding:20,
+                  border:"2px solid #ef4444",
+                }}>
+                  <h4 style={{color:"#dc2626",margin:"0 0 12px"}}>⚠️ Are you absolutely sure?</h4>
+                  <p style={{fontSize:13,color:"#7f1d1d",lineHeight:1.6,marginBottom:16}}>
+                    This will permanently delete ALL bookings, sessions, chat messages, client notes, and discount codes.
+                    This cannot be undone. Make sure you've downloaded a backup first.
+                  </p>
+                  <div style={{display:"flex",gap:10}}>
+                    <button
+                      className="btn"
+                      style={{background:"#dc2626",color:"#fff",borderColor:"#dc2626"}}
+                      disabled={clearing}
+                      onClick={async () => {
+                        setClearing(true);
+                        setClearProgress("Deleting bookings…");
+                        try {
+                          const { db } = await import("@/lib/firebase");
+                          const { collection, getDocs, deleteDoc } = await import("firebase/firestore");
+
+                          // Delete all bookings + subcollections
+                          const bookingsSnap = await getDocs(collection(db, "bookings"));
+                          for (const d of bookingsSnap.docs) {
+                            try {
+                              const msgsSnap = await getDocs(collection(db, "bookings", d.id, "messages"));
+                              for (const m of msgsSnap.docs) await deleteDoc(m.ref);
+                            } catch {}
+                            try {
+                              const sessSnap = await getDocs(collection(db, "bookings", d.id, "session"));
+                              for (const s of sessSnap.docs) await deleteDoc(s.ref);
+                            } catch {}
+                            await deleteDoc(d.ref);
+                          }
+                          setClearProgress("Deleting discount codes…");
+
+                          const dcSnap = await getDocs(collection(db, "discountCodes"));
+                          for (const d of dcSnap.docs) await deleteDoc(d.ref);
+
+                          setClearProgress("Deleting client notes…");
+                          const clientsSnap = await getDocs(collection(db, "clients"));
+                          for (const c of clientsSnap.docs) {
+                            try {
+                              const notesSnap = await getDocs(collection(db, "clients", c.id, "notes"));
+                              for (const n of notesSnap.docs) await deleteDoc(n.ref);
+                            } catch {}
+                            await deleteDoc(c.ref);
+                          }
+
+                          setClearProgress("Deleting calls…");
+                          const callsSnap = await getDocs(collection(db, "calls"));
+                          for (const d of callsSnap.docs) {
+                            try {
+                              const ocSnap = await getDocs(collection(db, "calls", d.id, "offerCandidates"));
+                              for (const c of ocSnap.docs) await deleteDoc(c.ref);
+                            } catch {}
+                            try {
+                              const acSnap = await getDocs(collection(db, "calls", d.id, "answerCandidates"));
+                              for (const c of acSnap.docs) await deleteDoc(c.ref);
+                            } catch {}
+                            await deleteDoc(d.ref);
+                          }
+
+                          setClearProgress("✅ All data cleared! Refreshing…");
+                          setTimeout(() => window.location.reload(), 2000);
+                        } catch (err) {
+                          console.error("Clear data error:", err);
+                          setClearProgress("❌ Error clearing data. Check console.");
+                          setClearing(false);
+                        }
+                      }}
+                    >
+                      {clearing ? "Deleting…" : "Yes, delete everything"}
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => { setShowClearConfirm(false); }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {clearProgress && (
+                    <p style={{fontSize:12,color:"#7f1d1d",fontWeight:600,marginTop:10}}>{clearProgress}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
