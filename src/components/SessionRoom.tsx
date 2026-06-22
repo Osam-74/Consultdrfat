@@ -98,6 +98,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [fabOpen, setFabOpen] = useState(false);
   const fabRef = useRef<HTMLDivElement>(null);
   const fabDragRef = useRef<{ startX: number; startY: number; elX: number; elY: number } | null>(null);
+  const fabDidDragRef = useRef(false); // true if the last pointer-down actually moved
   const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
@@ -1383,34 +1384,38 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               if (!el) return;
               const rect = el.getBoundingClientRect();
               fabDragRef.current = { startX: e.clientX, startY: e.clientY, elX: rect.left, elY: rect.top };
+              fabDidDragRef.current = false; // reset drag flag on every new touch
               el.setPointerCapture(e.pointerId);
-              // Do NOT call preventDefault here — it would block tap/click events on child buttons
             }}
             onPointerMove={(e) => {
               if (!fabDragRef.current) return;
               const dx = e.clientX - fabDragRef.current.startX;
               const dy = e.clientY - fabDragRef.current.startY;
-              if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+              if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+                fabDidDragRef.current = true; // real drag — suppress subsequent onClick
                 const newX = Math.max(8, Math.min(window.innerWidth - 64, fabDragRef.current.elX + dx));
                 const newY = Math.max(8, Math.min(window.innerHeight - 64, fabDragRef.current.elY + dy));
                 setFabPos({ x: newX, y: newY });
               }
             }}
-            onPointerUp={(e) => {
-              const d = fabDragRef.current;
-              if (d) {
-                const dx = Math.abs(e.clientX - d.startX);
-                const dy = Math.abs(e.clientY - d.startY);
-                // Only toggle FAB if the tap target is the fab-toggle button (not a menu item)
-                const tgt = e.target as HTMLElement;
-                const isFabToggleBtn = tgt.closest(".fab-toggle") !== null;
-                if (dx < 6 && dy < 6 && isFabToggleBtn) setFabOpen(v => !v);
-              }
+            onPointerUp={() => {
               fabDragRef.current = null;
+              // Toggle is handled by onClick on the .fab-toggle button below.
+              // We only clear the drag ref here.
             }}
           >
-            {/* FAB toggle button — gear icon (SVG) */}
-            <button className="fab-toggle" aria-label="Practitioner controls">
+            {/* FAB toggle button — gear icon (SVG).
+                 onClick fires reliably after pointer capture is released.
+                 We guard against it firing after a real drag using fabDidDragRef. */}
+            <button
+              className="fab-toggle"
+              aria-label="Practitioner controls"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (fabDidDragRef.current) return; // was a drag, not a tap
+                setFabOpen(v => !v);
+              }}
+            >
               {fabOpen
                 ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
