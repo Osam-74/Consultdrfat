@@ -49,12 +49,13 @@ const BrandNav = ({ onSignOut }: {
 );
 
 // ── Compact booking card with accordion expand ──────────────────────────────
-function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode }: {
+function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode, sessionStatus }: {
   b: Booking;
   onArchive: (id: string) => void;
   onPermanentDelete?: (id: string) => void;
   onUnarchive?: (id: string) => void;
   filterMode?: "upcoming" | "past" | "archived";
+  sessionStatus?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -77,9 +78,19 @@ function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode 
           <span className="brow-time">{d.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})} – {end.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>
         </div>
         <div className="brow-meta">
-          <span className={"status-pill " + b.status}>
-            {b.status === "paid" ? "✅ Confirmed" : b.status === "held" ? "⏳ Pending" : "❌ Cancelled"}
-          </span>
+          {(() => {
+            const ss = sessionStatus ?? "none";
+            const now = new Date();
+            if (b.status === "cancelled") return <span className="status-pill pill-cancelled">Cancelled</span>;
+            if (b.status === "held") return <span className="status-pill pill-held">Pending</span>;
+            if (b.archived && ss === "complete") return <span className="status-pill pill-completed">Completed</span>;
+            if (ss === "complete") return <span className="status-pill pill-completed">Completed</span>;
+            if (b.archived && b.slotStart.toDate() < now) return <span className="status-pill pill-noshown">No-Show</span>;
+            if (b.status === "paid" && b.slotStart.toDate() < now && ss !== "complete" && !b.archived) {
+              return <span className="status-pill pill-noshown">No-Show</span>;
+            }
+            return <span className="status-pill pill-confirmed">Confirmed</span>;
+          })()}
           <span className="brow-amount">{ngn(b.amountNGN)}</span>
         </div>
         <span className="brow-chevron" style={{transform: open ? "rotate(180deg)" : "none"}}>▾</span>
@@ -340,10 +351,11 @@ export default function AdminPage() {
   // All bookings ever (including archived) for earnings — never reduce on archive
   const allPaid = bookings.filter(b => b.status === "paid");
 
-  // Upcoming = paid, not archived, session not complete yet
+  // Upcoming = paid, not archived, slot is in the future (> now), not complete
+  const nowTs = new Date();
   const upcoming = nonArchived.filter(b =>
     b.status === "paid" &&
-    b.slotStart.toDate() >= startOfToday &&
+    b.slotStart.toDate() > nowTs &&
     (sessionStatuses[b.id] ?? "none") !== "complete"
   );
   // Completed = session doc is "complete" (but not yet archived by practitioner)
@@ -462,31 +474,27 @@ export default function AdminPage() {
         {/* ── Ping notification banner ── */}
         {pingNotification && (
           <div style={{
-            position: "fixed", top: 16, right: 16, zIndex: 10000,
-            background: "linear-gradient(135deg,#0E8A7A,#0B2B4A)",
-            color: "#fff", borderRadius: 14, padding: "14px 18px",
-            boxShadow: "0 8px 32px rgba(14,138,122,.4)", maxWidth: 340,
-            display: "flex", alignItems: "center", gap: 12,
-            animation: "fadeSlideUp .3s ease",
+            position:"fixed",top:14,right:14,zIndex:10000,
+            background:"linear-gradient(135deg,#0E8A7A,#0B2B4A)",
+            color:"#fff",borderRadius:12,padding:"10px 14px",
+            boxShadow:"0 6px 24px rgba(14,138,122,.35)",maxWidth:300,
+            display:"flex",alignItems:"center",gap:10,
+            animation:"fadeSlideUp .25s ease",
           }}>
-            <span style={{ fontSize: 24, flexShrink: 0 }}>🔔</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{pingNotification.name} is waiting</div>
-              <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>Client pressed Notify — start the session</div>
+            <span style={{fontSize:20,flexShrink:0,animation:"bellDangle .5s ease-in-out infinite alternate",display:"inline-block",transformOrigin:"top center"}}>🔔</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{pingNotification.name} is waiting</div>
             </div>
             <Link href={`/session/?id=${pingNotification.bookingId}&role=practitioner`}
               style={{
-                background: "rgba(255,255,255,.2)", color: "#fff",
-                borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700,
-                textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
+                background:"rgba(255,255,255,.22)",color:"#fff",
+                borderRadius:7,padding:"5px 10px",fontSize:12,fontWeight:700,
+                textDecoration:"none",whiteSpace:"nowrap",flexShrink:0,
               }}>
-              Start →
+              Start
             </Link>
-            <button onClick={() => setPingNotification(null)}
-              style={{
-                background: "none", border: "none", color: "rgba(255,255,255,.6)",
-                cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0,
-              }}>×</button>
+            <button onClick={()=>setPingNotification(null)}
+              style={{background:"none",border:"none",color:"rgba(255,255,255,.55)",cursor:"pointer",fontSize:16,padding:0,flexShrink:0}}>×</button>
           </div>
         )}
 
@@ -523,44 +531,62 @@ export default function AdminPage() {
         })()}
 
 
-        {/* ── Waiting Room Bar — full width, links to /waiting-room ── */}
+        {/* ── Waiting Room Bar ── */}
         {(() => {
+          const now_ = Date.now();
           const hasFreshPing = waitingRoom.some(b => {
             const pt = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
-            return pt && typeof pt === "number" && (Date.now() - pt) < 60_000;
+            return pt && typeof pt === "number" && (now_ - pt) < 5 * 60 * 1000;
           });
+          const hasClients = waitingRoom.length > 0;
           return (
-        <Link
-          href="/waiting-room"
-          style={{
-            display:"flex", alignItems:"center", gap:12, width:"100%",
-            textDecoration:"none",
-            background: waitingRoom.length > 0
-              ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)"
-              : "#fff",
-            color: waitingRoom.length > 0 ? "#fff" : "var(--navy)",
-            border: waitingRoom.length > 0 ? "none" : "1px solid var(--line)",
-            borderRadius:16, padding:"14px 20px",
-            marginBottom:14, boxShadow:"var(--shadow-sm)",
-            transition:"all .2s", cursor:"pointer",
-          }}
-        >
-          {waitingRoom.length > 0 && (
-            <span className={"wr-pulse-dot" + (hasFreshPing ? " ping-flash" : "")} style={{background:"#fff"}} />
-          )}
-          <span style={{fontWeight:700,fontSize:14}}>Waiting Room</span>
-          {waitingRoom.length > 0 ? (
-            <span style={{
-              fontSize:12, fontWeight:700,
-              background: "rgba(255,255,255,.2)",
-              color:"#fff", borderRadius:999, padding:"2px 12px",
-            }}>
-              {waitingRoom.length} client{waitingRoom.length!==1?"s":""} waiting
-            </span>
-          ) : (
-            <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
-          )}
-        </Link>
+            <Link
+              href="/waiting-room"
+              style={{
+                display:"flex", alignItems:"center", gap:10, width:"100%",
+                textDecoration:"none",
+                background: hasClients ? "linear-gradient(135deg,#0E8A7A,#0B2B4A)" : "#fff",
+                color: hasClients ? "#fff" : "var(--navy)",
+                border: hasClients ? "none" : "1px solid var(--line)",
+                borderRadius:16, padding:"12px 18px",
+                marginBottom:14, boxShadow:"var(--shadow-sm)",
+                transition:"all .2s", cursor:"pointer", position:"relative",
+              }}
+            >
+              {/* Pulsing dot — only when clients are present */}
+              <span style={{
+                width:10,height:10,borderRadius:"50%",flexShrink:0,
+                background: hasClients ? "#fff" : "var(--muted)",
+                animation: hasClients ? "wrPulse 1.5s ease-in-out infinite" : "none",
+                boxShadow: hasClients ? "0 0 0 3px rgba(255,255,255,.25)" : "none",
+                transition:"all .3s",
+              }} />
+              <span style={{fontWeight:700,fontSize:14,flex:1}}>Waiting Room</span>
+              {hasClients ? (
+                <span style={{
+                  fontSize:12, fontWeight:700,
+                  background:"rgba(255,255,255,.2)",
+                  color:"#fff", borderRadius:999, padding:"2px 10px",
+                }}>
+                  {waitingRoom.length} waiting
+                </span>
+              ) : (
+                <span style={{fontSize:12,color:"var(--muted)"}}>No clients waiting</span>
+              )}
+              {/* Bell icon — dangles for 5 min on ping */}
+              {hasFreshPing && (
+                <span
+                  style={{
+                    fontSize:18,
+                    animation:"bellDangle 0.5s ease-in-out infinite alternate",
+                    transformOrigin:"top center",
+                    display:"inline-block",
+                    marginLeft:4,
+                  }}
+                  title="A client just pinged!"
+                >🔔</span>
+              )}
+            </Link>
           );
         })()}
 
@@ -584,7 +610,7 @@ export default function AdminPage() {
             <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>✅</div>
             <div style={{minWidth:0}}>
               <div className="stat-val" style={{color:"var(--navy)"}}>{completedCount}</div>
-              <div className="stat-lbl">Completed</div>
+              <div className="stat-lbl">Completed Sessions</div>
             </div>
           </div>
           {/* Consultation Hours — total duration of all completed sessions */}
@@ -945,7 +971,7 @@ export default function AdminPage() {
                         </div>
                         <div className="booking-compact-list">
                           {dayBookings.map(b => (
-                            <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="upcoming" />
+                            <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="upcoming" sessionStatus={sessionStatuses[b.id]} />
                           ))}
                         </div>
                       </>
@@ -973,7 +999,7 @@ export default function AdminPage() {
                   return (
                     <div className="booking-compact-list">
                       {pastBookings.map(b => (
-                        <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="past" />
+                        <BookingCard key={b.id} b={b} onArchive={handleArchive} filterMode="past" sessionStatus={sessionStatuses[b.id]} />
                       ))}
                     </div>
                   );
@@ -1003,6 +1029,7 @@ export default function AdminPage() {
                           onPermanentDelete={handlePermanentDelete}
                           onUnarchive={handleUnarchive}
                           filterMode="archived"
+                          sessionStatus={sessionStatuses[b.id]}
                         />
                       ))}
                     </div>
@@ -1096,39 +1123,42 @@ export default function AdminPage() {
               </div>
             </div>
             {discountCodes.length === 0 ? (
-              <div className="empty-state">
-                <div style={{fontSize:32,marginBottom:8}}>🎫</div>
-                <p style={{color:"var(--muted)"}}>No discounts issued yet. Send one from inside a session.</p>
+              <div className="empty-state" style={{padding:"24px 0",textAlign:"center"}}>
+                <div style={{fontSize:28,marginBottom:6}}>🎫</div>
+                <p style={{color:"var(--muted)",fontSize:13}}>No discounts issued yet. Send one from inside a session.</p>
               </div>
             ) : (
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",flexDirection:"column",gap:7}}>
                 {discountCodes.slice().sort((a,b)=>b.createdAt.toMillis()-a.createdAt.toMillis()).map(dc => {
-                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
-                  const issued = dc.createdAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
+                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short"});
+                  const now_ = Date.now();
+                  const isActive = !dc.used && dc.expiresAt.toMillis() >= now_;
+                  const isExpired = !dc.used && dc.expiresAt.toMillis() < now_;
                   return (
                     <div key={dc.id} style={{
-                      display:"flex",alignItems:"center",gap:12,padding:"12px 16px",
-                      borderRadius:12,background:"#f8fafc",border:"1px solid #e8edf3",flexWrap:"wrap"
+                      display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                      borderRadius:10,background:"#f8fafc",border:"1px solid #e8edf3",
                     }}>
+                      {/* Percent badge */}
                       <div style={{
-                        minWidth:56,textAlign:"center",padding:"6px 10px",borderRadius:8,
-                        background: dc.used ? "#f0f0f0" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
-                        color: dc.used ? "#999" : "#fff",fontWeight:800,fontSize:15,letterSpacing:".04em"
+                        width:42,height:42,borderRadius:8,display:"flex",flexDirection:"column",
+                        alignItems:"center",justifyContent:"center",flexShrink:0,
+                        background: dc.used ? "#f0f0f0" : isExpired ? "#fef9ec" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
+                        color: dc.used ? "#aaa" : isExpired ? "#b45309" : "#fff",
                       }}>
-                        {dc.percent}%
+                        <span style={{fontWeight:800,fontSize:14,lineHeight:1}}>{dc.percent}%</span>
+                        <span style={{fontSize:9,fontWeight:600,opacity:.75}}>OFF</span>
                       </div>
-                      <div style={{flex:1,minWidth:140}}>
-                        <div style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".06em",fontFamily:"monospace"}}>
-                          {dc.code}
-                          {dc.used && <span style={{marginLeft:8,fontSize:11,fontWeight:500,color:"#999",fontFamily:"sans-serif"}}>Used</span>}
-                          {!dc.used && dc.expiresAt.toMillis() < Date.now() && <span style={{marginLeft:8,fontSize:11,fontWeight:500,color:"#e53e3e",fontFamily:"sans-serif"}}>Expired</span>}
-                          {!dc.used && dc.expiresAt.toMillis() >= Date.now() && <span style={{marginLeft:8,fontSize:11,fontWeight:600,color:"#0E8A7A",fontFamily:"sans-serif"}}>Active</span>}
+                      {/* Code + meta */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                          <span style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".05em",fontFamily:"monospace"}}>{dc.code}</span>
+                          {dc.used && <span style={{fontSize:10,fontWeight:700,background:"#f0f0f0",color:"#888",borderRadius:999,padding:"1px 7px"}}>USED</span>}
+                          {isExpired && <span style={{fontSize:10,fontWeight:700,background:"#fef9ec",color:"#b45309",borderRadius:999,padding:"1px 7px"}}>EXPIRED</span>}
+                          {isActive && <span style={{fontSize:10,fontWeight:700,background:"rgba(14,138,122,.1)",color:"#0E8A7A",borderRadius:999,padding:"1px 7px"}}>ACTIVE</span>}
                         </div>
-                        <div style={{fontSize:12,color:"var(--muted)",marginTop:3}}>
-                          For: <strong>{dc.createdForName}</strong> ({dc.createdFor})
-                        </div>
-                        <div style={{fontSize:11,color:"var(--muted-2)",marginTop:2}}>
-                          Issued {issued} · Expires {exp}
+                        <div style={{fontSize:11,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {dc.createdForName} · exp {exp}
                         </div>
                       </div>
                     </div>

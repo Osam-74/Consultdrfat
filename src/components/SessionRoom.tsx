@@ -31,7 +31,7 @@ function fmt(ms: number) {
   return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-const DISCOUNT_OPTIONS = [10, 20, 30, 50] as const;
+const DISCOUNT_OPTIONS = [25, 50, 75, 100] as const;
 
 export default function SessionRoom({ bookingId, role }: { bookingId: string; role: Role }) {
   const isPract = role === "practitioner";
@@ -56,7 +56,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   // Discount UI state (practitioner only)
   const [showDiscount, setShowDiscount] = useState(false);
-  const [discountPct, setDiscountPct] = useState<typeof DISCOUNT_OPTIONS[number]>(20);
+  const [discountPct, setDiscountPct] = useState<typeof DISCOUNT_OPTIONS[number]>(25);
   const [discountSending, setDiscountSending] = useState(false);
   const [discountSent, setDiscountSent] = useState(false);
   const [discountCode, setDiscountCode] = useState<string | null>(null);
@@ -239,15 +239,23 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     return () => unsub();
   }, [bookingId]);
 
-  // ── Client rejoin notification ──
-  // If a client enters a session that's already live (reconnecting after disconnect),
-  // notify the practitioner that the client is back.
-  const hasNotifiedRejoinRef = useRef(false);
+  // ── Client join / rejoin notification ──
+  // First time: send "Client has joined" (neutral, not "rejoined").
+  // Subsequent entries after leaving: send "Client has rejoined".
+  // We use sessionStorage to track whether the client has left before.
+  const hasNotifiedJoinRef = useRef(false);
   useEffect(() => {
     if (!session || session.status !== "live" || isPract) return;
-    if (hasNotifiedRejoinRef.current) return;
-    hasNotifiedRejoinRef.current = true;
-    clientRejoinedSession(bookingId).catch(() => {});
+    if (hasNotifiedJoinRef.current) return;
+    hasNotifiedJoinRef.current = true;
+    const leftBefore = sessionStorage.getItem(`left_session_${bookingId}`) === "1";
+    if (leftBefore) {
+      sessionStorage.removeItem(`left_session_${bookingId}`);
+      clientRejoinedSession(bookingId).catch(() => {});
+    } else {
+      // First join — send neutral "Client has joined" system message
+      clientRejoinedSession(bookingId, true).catch(() => {});
+    }
   }, [session, isPract, bookingId]);
 
   // ── Call handlers (new call/answer model) ──
@@ -925,52 +933,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                sessionLive ? "Click call to start voice" : "Voice locked"}
             </div>
 
-            {/* ── Call controls: Call, Video (disabled), Mute, End Call, Leave ── */}
-            <div className="controls">
-              {/* Call / End Call button */}
-              {!voiceLive && callStatus !== "ringing" && (
-                <button className="ctl" onClick={handleStartCall}
-                  disabled={!sessionLive || callConnecting}
-                  style={sessionLive && !callConnecting ? {} : {opacity:.45, cursor:"not-allowed"}}
-                  title={sessionLive ? "Start voice call" : "Waiting for session to start…"}>
-                  <span className="knob">📞</span>{sessionLive ? "Call" : "Locked"}
-                </button>
-              )}
-              {voiceLive && (
-                <button className={"ctl" + (micOn ? "" : " muted")} onClick={() => {
-                  // Toggle mute on local stream
-                  localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
-                  setMicOn(!micOn);
-                }}>
-                  <span className="knob">{micOn ? "🎙️" : "🔇"}</span>{micOn ? "Mute" : "Unmute"}
-                </button>
-              )}
-              {voiceLive && (
-                <button className="ctl danger" onClick={handleEndCall}
-                  title="End voice call">
-                  <span className="knob">📞</span>Drop Call
-                </button>
-              )}
-              {/* Video icon — not functional yet, visual only */}
-              <button className="ctl" disabled
-                style={{ opacity: 0.4, cursor: "not-allowed" }}
-                title="Video coming soon">
-                <span className="knob">📹</span>Video
-              </button>
-              {/* End/Leave session */}
-              <button className="ctl danger"
-                onClick={() => {
-                  if (isPract) {
-                    completeSession(bookingId);
-                  } else {
-                    setShowLeaveConfirm(true);
-                  }
-                }}
-                disabled={!sessionLive && !isPract}
-              >
-                <span className="knob">✕</span>{isPract ? "End" : "Leave"}
-              </button>
-            </div>
+            {/* Call controls now in pane-h header */}
           </div>
 
           {/* ── Chat ── */}
@@ -988,13 +951,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                     <div
                       key={m.id}
                       className={"msg-wrapper " + cls}
-                      style={{
-                        position: "relative",
-                        overflow: "visible",
-                        marginBottom: 4,
-                      }}
+                      style={{ marginBottom: 4 }}
                     >
-                      {/* Swipe action button — revealed on swipe left */}
+                      {/* Swipe action button — left for mine (swiped left), right for theirs (swiped right) */}
                       {canReply && (
                         <button
                           className="swipe-tag-btn"
@@ -1005,15 +964,15 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                           }}
                           style={{
                             position: "absolute",
-                            right: 0,
+                            ...(cls === "mine" ? { left: 4 } : { right: 4 }),
                             top: "50%",
                             transform: "translateY(-50%)",
-                            padding: "8px 12px",
-                            borderRadius: 10,
+                            padding: "6px 10px",
+                            borderRadius: 8,
                             border: "none",
                             background: "var(--teal)",
                             color: "#fff",
-                            fontSize: 16,
+                            fontSize: 13,
                             cursor: "pointer",
                             opacity: isSwiped ? 1 : 0,
                             pointerEvents: isSwiped ? "auto" : "none",
@@ -1040,11 +999,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                         if (!canReply) return;
                         const dx = e.changedTouches[0].clientX - touchStartX.current;
                         const dy = e.changedTouches[0].clientY - touchStartY.current;
-                        // Swipe left (negative dx) with more horizontal than vertical movement
-                        if (dx < -40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                        const isHoriz = Math.abs(dx) > Math.abs(dy) * 1.5;
+                        if (!isHoriz) return;
+                        // mine (right side) → swipe LEFT to reveal reply button
+                        // theirs (left side) → swipe RIGHT to reveal reply button
+                        const isMine = cls === "mine";
+                        if (isMine && dx < -40) {
                           setSwipedMsgId(m.id);
-                        } else if (dx > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-                          // Swipe right closes the tag button
+                        } else if (!isMine && dx > 40) {
+                          setSwipedMsgId(m.id);
+                        } else {
                           setSwipedMsgId(null);
                         }
                       }}
@@ -1058,7 +1022,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       }}
                       style={{
                         position: "relative",
-                        transform: isSwiped ? "translateX(-70px)" : "translateX(0)",
+                        transform: isSwiped
+                          ? (cls === "mine" ? "translateX(-60px)" : "translateX(60px)")
+                          : "translateX(0)",
                         transition: "transform .2s ease",
                         zIndex: 2,
                       }}
@@ -1243,32 +1209,40 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               {discountSent ? "✓" : "🎁"}
             </button>
 
-            {/* Discount picker panel */}
+            {/* Discount picker panel — compact */}
             {showDiscount && (
-              <div className="discount-panel">
-                <div className="dp-title">Discount for client</div>
-                <div className="dp-row">
+              <div className="discount-panel" style={{minWidth:200}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:12,fontWeight:700,color:"rgba(255,255,255,.8)"}}>Client Discount</span>
+                  <button onClick={()=>setShowDiscount(false)} style={{background:"none",border:"none",color:"rgba(255,255,255,.4)",cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button>
+                </div>
+                <div style={{display:"flex",gap:5,marginBottom:8}}>
                   {DISCOUNT_OPTIONS.map(p => (
                     <button
                       key={p}
-                      className={"dp-pct" + (discountPct === p ? " active" : "")}
                       onClick={() => setDiscountPct(p)}
+                      style={{
+                        flex:1,padding:"5px 0",borderRadius:7,border:"1.5px solid",
+                        fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                        background:discountPct===p?"var(--teal)":"transparent",
+                        color:discountPct===p?"#fff":"rgba(255,255,255,.65)",
+                        borderColor:discountPct===p?"var(--teal)":"rgba(255,255,255,.18)",
+                      }}
                     >{p}%</button>
                   ))}
                 </div>
                 <button
-                  className="dbtn primary"
-                  style={{ width: "100%", marginTop: 8 }}
+                  style={{
+                    width:"100%",padding:"8px 0",borderRadius:8,border:"none",
+                    background:"var(--teal)",color:"#fff",fontWeight:700,fontSize:13,
+                    cursor:discountSending?"not-allowed":"pointer",opacity:discountSending?.7:1,
+                    fontFamily:"inherit",
+                  }}
                   onClick={sendDiscount}
                   disabled={discountSending}
                 >
-                  {discountSending ? "Sending…" : `Send ${discountPct}% discount`}
+                  {discountSending ? "Sending…" : `Send ${discountPct}% off`}
                 </button>
-                {!clientEmail && (
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 6, textAlign: "center" }}>
-                    Waiting for client session data…
-                  </div>
-                )}
               </div>
             )}
 
@@ -1340,6 +1314,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               if (voiceRef.current) {
                 await handleEndCall();
               }
+              // Mark left so on return we show "rejoined" not "joined"
+              sessionStorage.setItem(`left_session_${bookingId}`, "1");
               // Send leave notification and update booking
               await clientLeftSession(bookingId).catch(() => {});
               voiceRef.current?.stop().catch(() => {});

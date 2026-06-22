@@ -188,10 +188,16 @@ export async function clientLeftSession(bookingId: string): Promise<void> {
   } catch { /* non-fatal */ }
 }
 
-/** Notify when client rejoins the session room after leaving */
-export async function clientRejoinedSession(bookingId: string): Promise<void> {
+/** Notify when client enters the session room.
+ *  isFirstJoin=true → "Client has joined" (first time)
+ *  isFirstJoin=false/default → "Client has rejoined" (after leaving)
+ */
+export async function clientRejoinedSession(bookingId: string, isFirstJoin = false): Promise<void> {
   try {
-    await sendMessage(bookingId, "system", "↩️ Client has rejoined the session.");
+    const msg = isFirstJoin
+      ? "✅ Client has joined the session."
+      : "↩️ Client has rejoined the session.";
+    await sendMessage(bookingId, "system", msg);
     await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
   } catch { /* non-fatal */ }
 }
@@ -475,12 +481,12 @@ export interface DiscountCode {
   expiresAt: Timestamp;   // 90 days from creation
 }
 
-/** Generate a short alphanumeric code like "DRFAT-3X7K" */
+/** Generate a random 6-character alphanumeric discount code (no prefix) */
 function makeCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no confusing 0/O/1/I
-  let suffix = "";
-  for (let i = 0; i < 4; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
-  return `DRFAT-${suffix}`;
+  let code = "";
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
 }
 
 /**
