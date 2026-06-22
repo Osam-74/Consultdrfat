@@ -163,13 +163,15 @@ export async function startSession(bookingId: string, durationMin: number) {
 export async function completeSession(bookingId: string) {
   // Mark session as complete
   await updateDoc(sessionRef(bookingId), { status: "complete", updatedAt: serverTimestamp() });
-  // Clear inSession + set completedAt on booking — but do NOT auto-archive.
-  // Practitioner archives manually. This keeps the booking visible in their list.
+  // Clear inSession + clientPing + set completedAt on booking.
+  // Clearing clientPing ensures the client is immediately removed from the
+  // waiting room hasFreshPing check — no stale ping can re-add them.
   try {
     await updateDoc(doc(db, "bookings", bookingId), {
       inSession: false,
       completedAt: serverTimestamp(),
       sessionStatus: "complete",
+      clientPing: null,   // ← kill any leftover ping so waiting room drops them instantly
     });
   } catch { /* non-fatal — session doc is the source of truth */ }
 }
@@ -722,15 +724,16 @@ export function watchWaitingRoom(cb: (rows: Booking[]) => void) {
       .filter((b) => {
         const ms = b.slotStart.toMillis();
         const pingTime = (b as unknown as Record<string, unknown>).clientPing as number | undefined;
+        const sessionStatus = (b as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+        // Never show completed sessions in the waiting room
+        if (sessionStatus === "complete") return false;
         const hasFreshPing = pingTime && typeof pingTime === "number" && (freshNow - pingTime) < 5 * 60 * 1000;
-        // If client has a fresh ping, ALWAYS show them (even if inSession is true —
-        // they may have pinged from the session room before the practitioner started)
+        // If client has a fresh ping AND session is not complete, show them
         if (b.status === "paid" && !b.archived && hasFreshPing) return true;
         return (
           b.status === "paid" &&   // only confirmed-paid bookings
           !b.archived &&           // not archived by practitioner
           !b.inSession &&          // not already in a live session
-          // within rolling window OR has a fresh ping (actively waiting right now)
           (ms >= freshStart && ms <= freshEnd)
         );
       });
@@ -784,9 +787,12 @@ export async function rescheduleBooking(
  */
 export async function pingPresence(bookingId: string, uid: string): Promise<void> {
   try {
-    // Presence heartbeat — only write the timestamp field (not updatedAt) to
-    // avoid triggering downstream watchSession listeners unnecessarily.
-    // Rate is intentionally low (90s interval) to conserve Firestore write quota.
+    // Guard: never ping on a completed session — read sessionStatus from booking first
+    const bSnap = await getDoc(doc(db, "bookings", bookingId));
+    if (bSnap.exists()) {
+      const bData = bSnap.data() as Record<string, unknown>;
+      if (bData.sessionStatus === "complete") return; // session done — stop all pings
+    }
     await updateDoc(sessionRef(bookingId), {
       [`presence.${uid}`]: Date.now(),
     });

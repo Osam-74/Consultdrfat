@@ -48,22 +48,17 @@ function TestimonialsSection() {
   const trackRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [active, setActive] = useState(0);
-  const CARD_WIDTH_PCT = 100 / 2; // 2 cards visible baseline, handled via CSS
 
   const scrollTo = (i: number) => {
     const el = trackRef.current;
     if (!el) return;
-    // Each card is (100/TOTAL_VISIBLE)% — we scroll so card i is centred
-    // We use scrollLeft directly so there are no CSS animation conflicts
     const cardW = el.scrollWidth / TESTIMONIALS.length;
     el.scrollTo({ left: cardW * i, behavior: "smooth" });
     setActive(i);
   };
 
   const next = () => scrollTo((active + 1) % TESTIMONIALS.length);
-  const prev = () => scrollTo((active - 1 + TESTIMONIALS.length) % TESTIMONIALS.length);
 
-  // Auto-advance every 6 seconds
   useEffect(() => {
     timerRef.current = setInterval(next, 6000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
@@ -72,13 +67,14 @@ function TestimonialsSection() {
 
   return (
     <section className="section testi-section" style={{ background: "var(--paper)", overflow: "hidden" }}>
+      {/* Header — centred, same max-width as other sections */}
       <div className="wrap">
-        <div className="section-head">
-          <div className="section-label">Voices From The Consultation Room</div>
-          <h2>Patients who chose to consult differently.</h2>
+        <div className="section-head" style={{ textAlign: "center" }}>
+          <div className="section-label" style={{ margin: "0 auto 10px", display: "inline-block" }}>Voices From The Consultation Room</div>
+          <h2 style={{ textAlign: "center" }}>Patients who chose to consult differently.</h2>
         </div>
       </div>
-      {/* Full-bleed scrollable track — overflow visible so side cards peek */}
+      {/* Full-bleed scrollable track */}
       <div className="testi-outer">
         <div className="testi-track" ref={trackRef}>
           {TESTIMONIALS.map((t, i) => (
@@ -98,17 +94,12 @@ function TestimonialsSection() {
           ))}
         </div>
       </div>
-      <div className="wrap">
-        <div className="testi-controls">
-          <button className="testi-arrow" onClick={prev} aria-label="Previous">‹</button>
-          <div className="testi-dots">
-            {TESTIMONIALS.map((_, i) => (
-              <button key={i} className={"testi-dot" + (i === active ? " active" : "")}
-                onClick={() => scrollTo(i)} aria-label={`View testimonial ${i + 1}`} />
-            ))}
-          </div>
-          <button className="testi-arrow" onClick={next} aria-label="Next">›</button>
-        </div>
+      {/* Dot indicators only — no arrow buttons */}
+      <div className="testi-dots-center">
+        {TESTIMONIALS.map((_, i) => (
+          <button key={i} className={"testi-dot" + (i === active ? " active" : "")}
+            onClick={() => scrollTo(i)} aria-label={`View testimonial ${i + 1}`} />
+        ))}
       </div>
     </section>
   );
