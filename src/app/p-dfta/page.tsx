@@ -645,7 +645,7 @@ export default function AdminPage() {
           <div className="avail-layout">
             <div className="avail-top-note">
               <span>📌</span>
-              <span><strong>How scheduling works:</strong> Set recurring weekly hours as a base. Then use the calendar to override specific dates — add extra hours, or block a day off.</span>
+              <span>Set your available hours to let clients book seamlessly — add recurring weekly slots or override specific dates.</span>
             </div>
             <div className="avail-two-col">
               {/* Calendar */}
@@ -1104,7 +1104,7 @@ export default function AdminPage() {
                           {c.lastVisit && ` \u00b7 Last: ${MON[c.lastVisit.getMonth()]} ${c.lastVisit.getDate()}`}
                         </div>
                       </div>
-                      <span style={{fontSize:16,color:"var(--muted)"}}>\u2192</span>
+                      
                     </Link>
                   ))}
                 </div>
@@ -1244,7 +1244,12 @@ export default function AdminPage() {
                 ))}
               </div>
               <button className="btn btn-primary" style={{marginTop:14}} disabled={saving}
-                onClick={async()=>{setSaving(true);await saveSettings(settings);setSaving(false);}}>
+                onClick={async()=>{
+                  setSaving(true);
+                  try { await saveSettings(settings); await refresh(); }
+                  catch(e) { console.error("saveSettings:",e); alert("Save failed — check connection."); }
+                  finally { setSaving(false); }
+                }}>
                 {saving?"Saving…":"💾 Save Settings"}
               </button>
             </div>

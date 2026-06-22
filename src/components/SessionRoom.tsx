@@ -793,41 +793,129 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       </div>
 
       <div className="stage">
-        <h2>Your session</h2>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+          <h2 style={{margin:0}}>Your session</h2>
+          {/* Leave / End Session — outside the box, right of heading */}
+          {isPract ? (
+            session?.status === "live" && (
+              <button
+                onClick={async () => {
+                  if (!confirm("End this session for both parties?")) return;
+                  try { await completeSession(bookingId); }
+                  catch (err) { console.error("End session error:", err); alert("Could not end session. Try again."); }
+                }}
+                style={{
+                  display:"flex",alignItems:"center",gap:6,padding:"7px 16px",
+                  borderRadius:10,border:"1.5px solid rgba(248,113,113,.55)",
+                  background:"rgba(248,113,113,.12)",color:"#F87171",
+                  fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                }}
+                onMouseOver={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.24)";}}
+                onMouseOut={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.12)";}}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                End Session
+              </button>
+            )
+          ) : (
+            <button
+              onClick={() => setShowLeaveConfirm(true)}
+              style={{
+                display:"flex",alignItems:"center",gap:6,padding:"7px 16px",
+                borderRadius:10,border:"1.5px solid rgba(248,113,113,.55)",
+                background:"rgba(248,113,113,.12)",color:"#F87171",
+                fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .15s",
+              }}
+              onMouseOver={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.24)";}}
+              onMouseOut={e=>{(e.currentTarget as HTMLButtonElement).style.background="rgba(248,113,113,.12)";}}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Leave
+            </button>
+          )}
+        </div>
         <p className="sub">{isPract ? "You are hosting your client." : "Your session with your practitioner."}</p>
 
         <div className="pane">
           <div className="pane-h">
+            {/* Avatar + online dot — no label text */}
             <div className="who">
-              <div className={"avatar " + (isPract ? "cl" : "dr")}>{isPract ? "CL" : "DR"}</div>
-              <div>
-                <div className="nm">{isPract ? "Your client" : "Your practitioner"}</div>
-                <div className="role" style={{display:"flex",alignItems:"center",gap:5}}>
-                  <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"#94a3b8",display:"inline-block",flexShrink:0}} />
-                  {otherOnline ? (voiceLive ? "Online · Voice connected" : "Online") : "Offline"}
-                </div>
+              <div style={{position:"relative",flexShrink:0}}>
+                <div className={"avatar " + (isPract ? "cl" : "dr")}>{isPract ? "CL" : "DR"}</div>
+                <span style={{
+                  position:"absolute",bottom:0,right:0,
+                  width:9,height:9,borderRadius:"50%",
+                  background:otherOnline?"#4ade80":"#94a3b8",
+                  border:"1.5px solid #1a2a4a",
+                  boxShadow:otherOnline?"0 0 0 2px rgba(74,222,128,.35)":"none",
+                  transition:"all .3s",
+                }} />
               </div>
-            </div>
-            <div className="conn" style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              <div style={{display:"flex",alignItems:"center",gap:5}}>
-                <span className={"led" + (complete ? " off" : "")} />
-                {complete ? "Time complete" : "Connected"}
-              </div>
-              {/* Mic feed visualizer — shows when your mic is transmitting */}
+              {/* Mic visualizer when transmitting */}
               {micOn && localStreamRef.current && (
-                <div style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"rgba(255,255,255,.55)"}}>
-                  <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:12}}>
-                    {[0.4,0.7,1,0.6,0.85].map((h,i) => (
-                      <div key={i} style={{
-                        width:3,height:`${h*scale*12}px`,borderRadius:2,
-                        background:`rgba(74,222,128,${0.5+h*0.5})`,
-                        transition:"height .1s",minHeight:2
-                      }} />
-                    ))}
-                  </div>
-                  <span>Mic live</span>
+                <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:12,marginLeft:6}}>
+                  {[0.4,0.7,1,0.6,0.85].map((h,i) => (
+                    <div key={i} style={{
+                      width:3,height:`${h*scale*12}px`,borderRadius:2,
+                      background:`rgba(74,222,128,${0.5+h*0.5})`,
+                      transition:"height .1s",minHeight:2
+                    }} />
+                  ))}
                 </div>
               )}
+            </div>
+            {/* Call + Video icons — flat SVG, right side */}
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {/* Voice call button */}
+              {sessionLive && (
+                callStatus === "idle" ? (
+                  <button
+                    onClick={handleStartCall}
+                    disabled={callConnecting}
+                    title="Start voice call"
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,border:"1.5px solid rgba(74,222,128,.45)",
+                      background:voiceLive?"rgba(74,222,128,.18)":"rgba(255,255,255,.06)",
+                      color:voiceLive?"#4ade80":"rgba(255,255,255,.75)",
+                      cursor:"pointer",transition:"all .15s",padding:0,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.47 2 2 0 0 1 3.59 1.3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6.29 6.29l1.02-.88a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                    </svg>
+                  </button>
+                ) : voiceLive ? (
+                  <button
+                    onClick={handleEndCall}
+                    title="End voice call"
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,border:"1.5px solid rgba(248,113,113,.55)",
+                      background:"rgba(248,113,113,.18)",color:"#F87171",
+                      cursor:"pointer",transition:"all .15s",padding:0,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
+                    </svg>
+                  </button>
+                ) : null
+              )}
+              {/* Video icon — visual only (no video in this version) */}
+              <div
+                title="Video not available in this version"
+                style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  width:36,height:36,borderRadius:10,border:"1.5px solid rgba(255,255,255,.12)",
+                  background:"rgba(255,255,255,.04)",color:"rgba(255,255,255,.25)",
+                  cursor:"not-allowed",padding:0,
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+              </div>
             </div>
           </div>
 
@@ -1189,16 +1277,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 Start session
               </button>
             )}
-            {session.status === "live" && (
-              <button className="dbtn" onClick={async () => {
-                try {
-                  await completeSession(bookingId);
-                } catch (err) {
-                  console.error("End session error:", err);
-                  alert("Could not end session. Check your connection and try again.");
-                }
-              }}>End now</button>
-            )}
+            {/* End session moved to top-right of "Your session" heading */}
 
             {/* Gift icon only — no text, tooltip explains */}
             <button

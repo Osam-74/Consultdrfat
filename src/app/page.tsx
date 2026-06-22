@@ -15,6 +15,169 @@ function DropdownLink({ href, onClick, children }: { href: string; onClick: () =
   );
 }
 
+
+// ── Testimonials data ──────────────────────────────────────────────────────
+const TESTIMONIALS = [
+  {
+    quote: "Dr. Fat was incredibly patient and thorough. He explained my diagnosis in plain terms I could actually understand. I felt genuinely cared for.",
+    name: "Adaeze Nwosu", initial: "A", location: "Enugu, Enugu State",
+  },
+  {
+    quote: "I was skeptical about online consultations but this completely changed my mind. Quick, private, and very professional. I saved hours I would have wasted in traffic.",
+    name: "Babatunde Ojo", initial: "B", location: "Ikeja, Lagos State",
+  },
+  {
+    quote: "Got my test results reviewed and a clear treatment plan within 30 minutes. The chat feature was really helpful for sharing my documents.",
+    name: "Chisom Eze", initial: "C", location: "Onitsha, Anambra State",
+  },
+  {
+    quote: "My child had a fever at 11pm. Being able to consult a real doctor from home at that hour was a lifesaver. Highly recommended.",
+    name: "Folake Adeyemi", initial: "F", location: "Ibadan, Oyo State",
+  },
+  {
+    quote: "I manage hypertension and Dr. Fat helped me understand my medications much better. I now have a proper plan to follow. Thank you.",
+    name: "Emeka Okafor", initial: "E", location: "Port Harcourt, Rivers State",
+  },
+  {
+    quote: "Very discreet and professional. I had a sensitive health concern I was too embarrassed to discuss in a regular clinic. This was perfect.",
+    name: "Ngozi Uche", initial: "N", location: "Abuja, FCT",
+  },
+];
+
+function TestimonialsSection() {
+  const [active, setActive] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [prevActive, setPrevActive] = useState(-1);
+
+  // Auto-slide every 5 seconds
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setActive(a => {
+        setPrevActive(a);
+        return (a + 1) % TESTIMONIALS.length;
+      });
+    }, 5000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  const goTo = (i: number) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setPrevActive(active);
+    setActive(i);
+    timerRef.current = setInterval(() => {
+      setActive(a => {
+        setPrevActive(a);
+        return (a + 1) % TESTIMONIALS.length;
+      });
+    }, 5000);
+  };
+
+  const t = TESTIMONIALS[active];
+
+  return (
+    <section className="section" style={{ background: "var(--paper)", overflow: "hidden" }}>
+      <div className="wrap">
+        <div className="section-head">
+          <div className="section-label">Voices From The Consultation Room</div>
+          <h2>Patients who chose to consult differently.</h2>
+        </div>
+        <div className="testi-carousel">
+          <div className="testi-card" key={active}>
+            {/* 5 stars */}
+            <div className="testi-stars">{"★".repeat(5)}</div>
+            {/* Quote */}
+            <blockquote className="testi-quote">&ldquo;{t.quote}&rdquo;</blockquote>
+            {/* Profile */}
+            <div className="testi-profile">
+              <div className="testi-avatar">{t.initial}</div>
+              <div>
+                <div className="testi-name">{t.name}</div>
+                <div className="testi-location">{t.location}</div>
+              </div>
+            </div>
+          </div>
+          {/* Carousel indicators */}
+          <div className="testi-dots">
+            {TESTIMONIALS.map((_, i) => (
+              <button
+                key={i}
+                className={"testi-dot" + (i === active ? " active" : "")}
+                onClick={() => goTo(i)}
+                aria-label={`View testimonial ${i + 1}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── FAQ data ───────────────────────────────────────────────────────────────
+const FAQS = [
+  {
+    q: "How does the online consultation actually work?",
+    a: "Once you book and pay, you receive a session link. At your appointment time, you join a private room where you can speak with Dr. Fat via voice call and live chat. Everything is encrypted and wiped after the session ends.",
+  },
+  {
+    q: "Is this a real medical consultation or just generic advice?",
+    a: "This is a real, personalised medical consultation with a qualified MDCN-registered doctor. Dr. Fat reviews your specific symptoms and history, not just generic health tips.",
+  },
+  {
+    q: "What happens if I miss my appointment?",
+    a: "Missed appointments are marked as No-Show and the session fee is not refunded. You can book a new slot at any time. If you know you'll be late, use the Notify button inside the waiting room to inform Dr. Fat.",
+  },
+  {
+    q: "Can Dr. Fat prescribe medications?",
+    a: "Yes. Dr. Fat can issue prescriptions, recommend over-the-counter treatments, and provide referral letters where needed — all delivered digitally after your session.",
+  },
+  {
+    q: "Is my health information kept private?",
+    a: "Absolutely. All session data — chat, voice, and shared files — is deleted once the session ends. Nothing is shared with third parties. Your privacy is our top priority.",
+  },
+  {
+    q: "What if I get disconnected during my session?",
+    a: "Do not worry. You can return to your session room using the floating chat icon on any page, or via 'Your Sessions' in your dashboard. Your session timer continues running so rejoin as quickly as possible.",
+  },
+];
+
+function FAQSection() {
+  const [open, setOpen] = useState<number | null>(null);
+
+  return (
+    <section className="section" style={{ background: "#F0FAF9" }}>
+      <div className="wrap" style={{ maxWidth: 720 }}>
+        <div className="section-head">
+          <div className="section-label">FAQ</div>
+          <h2>Questions, Answered</h2>
+        </div>
+        <div className="faq-list">
+          {FAQS.map((item, i) => (
+            <div
+              key={i}
+              className={"faq-item" + (open === i ? " open" : "")}
+              onClick={() => setOpen(open === i ? null : i)}
+            >
+              <div className="faq-q">
+                <span>{item.q}</span>
+                <svg
+                  className="faq-chevron"
+                  width="18" height="18" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+              {open === i && (
+                <div className="faq-a">{item.a}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
 export default function Home() {
   const { user, role, signOut } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -219,33 +382,36 @@ export default function Home() {
               No waiting rooms, no hassle.
             </p>
           </div>
-          <div className="steps-grid">
-            <div className="step-card">
-              <div className="step-num">01</div>
-              <div className="step-icon">📅</div>
-              <h3>Choose Your Slot</h3>
-              <p>
-                Browse available times for the next two weeks. 
-                Pick a slot that works — mornings, afternoons, or evenings.
-              </p>
+          <div className="hiw-list">
+            <div className="hiw-row">
+              <div className="hiw-num">01</div>
+              <div className="hiw-content">
+                <div className="hiw-icon">📅</div>
+                <div>
+                  <h3 className="hiw-title">Choose Your Slot</h3>
+                  <p className="hiw-desc">Browse available times for the next two weeks. Pick a slot that works — mornings, afternoons, or evenings.</p>
+                </div>
+              </div>
             </div>
-            <div className="step-card">
-              <div className="step-num">02</div>
-              <div className="step-icon">💳</div>
-              <h3>Pay Securely</h3>
-              <p>
-                Pay in naira using your bank card, transfer, OPay, or PalmPay. 
-                Your slot is confirmed immediately after payment.
-              </p>
+            <div className="hiw-row">
+              <div className="hiw-num">02</div>
+              <div className="hiw-content">
+                <div className="hiw-icon">💳</div>
+                <div>
+                  <h3 className="hiw-title">Pay Securely</h3>
+                  <p className="hiw-desc">Pay in naira using your bank card, bank transfer, or mobile money. Your slot is confirmed immediately after payment.</p>
+                </div>
+              </div>
             </div>
-            <div className="step-card">
-              <div className="step-num">03</div>
-              <div className="step-icon">🩺</div>
-              <h3>Consult Dr. Fat</h3>
-              <p>
-                Join your private room — voice call, live chat, and a shared timer. 
-                Get your diagnosis, advice, and next steps.
-              </p>
+            <div className="hiw-row">
+              <div className="hiw-num">03</div>
+              <div className="hiw-content">
+                <div className="hiw-icon">🩺</div>
+                <div>
+                  <h3 className="hiw-title">Consult Dr. Fat</h3>
+                  <p className="hiw-desc">Join your private room — voice call, live chat, and a shared countdown timer. Get your diagnosis, advice, and next steps.</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -393,6 +559,12 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ── TESTIMONIALS ── */}
+      <TestimonialsSection />
+
+      {/* ── FAQ ── */}
+      <FAQSection />
 
       {/* ── CTA ── */}
       <section className="section-sm">

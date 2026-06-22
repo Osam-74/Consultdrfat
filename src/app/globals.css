@@ -2454,3 +2454,218 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   border: none !important;
   box-shadow: 0 4px 24px rgba(0, 180, 180, 0.22), 0 1px 4px rgba(0,0,0,.08);
 }
+
+/* ════════════════════════════════════════════════════════════════
+   HOW IT WORKS — vertical two-column list
+   ════════════════════════════════════════════════════════════════ */
+.hiw-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.hiw-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.hiw-row:last-child { border-bottom: none; }
+.hiw-num {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--teal);
+  letter-spacing: .12em;
+  min-width: 28px;
+  padding-top: 4px;
+}
+.hiw-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  flex: 1;
+}
+.hiw-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.hiw-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+.hiw-desc {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TESTIMONIALS
+   ════════════════════════════════════════════════════════════════ */
+.testi-carousel {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.testi-card {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 20px;
+  padding: 32px 32px 28px;
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp .3s ease;
+}
+.testi-stars {
+  color: #f59e0b;
+  font-size: 18px;
+  letter-spacing: 2px;
+  margin-bottom: 18px;
+}
+.testi-quote {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--navy);
+  font-style: normal;
+  margin: 0 0 24px;
+  position: relative;
+}
+.testi-quote::before {
+  content: "\201C";
+  font-size: 48px;
+  color: var(--teal);
+  line-height: 0;
+  vertical-align: -18px;
+  margin-right: 4px;
+  font-family: Georgia, serif;
+}
+.testi-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.testi-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--teal) 0%, var(--navy) 100%);
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.testi-name {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 14px;
+}
+.testi-location {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.testi-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+.testi-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  background: var(--line);
+  cursor: pointer;
+  padding: 0;
+  transition: all .2s;
+}
+.testi-dot.active {
+  background: var(--teal);
+  width: 22px;
+  border-radius: 4px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FAQ SECTION
+   ════════════════════════════════════════════════════════════════ */
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.faq-item {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all .2s;
+  box-shadow: var(--shadow-sm);
+}
+.faq-item:hover {
+  border-color: var(--teal);
+  box-shadow: 0 3px 12px rgba(14,138,122,.1);
+}
+.faq-item.open {
+  border-color: var(--teal);
+  box-shadow: 0 4px 18px rgba(14,138,122,.12);
+}
+.faq-q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.faq-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform .25s;
+}
+.faq-item.open .faq-chevron {
+  transform: rotate(180deg);
+}
+.faq-a {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SESSION ROOM — Leave / End Session heading button
+   ════════════════════════════════════════════════════════════════ */
+.stage > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+/* ── teal-dark for FAQ tip text ── */
+:root { --teal-dark: #0c7268; }
+
+/* ════════════════════════════════════════════════════════════════
+   Responsive
+   ════════════════════════════════════════════════════════════════ */
+@media (max-width: 600px) {
+  .testi-card { padding: 22px 18px 18px; }
+  .testi-quote { font-size: 14px; }
+  .hiw-content { flex-direction: column; gap: 8px; }
+  .hiw-icon { font-size: 22px; }
+  .hiw-title { font-size: 15px; }
+}
