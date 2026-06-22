@@ -89,6 +89,12 @@ export default function BookPage() {
 
       setSlots(generateSlots(s, t, e, taken));
       setReady(true);
+      // Auto-scroll to #sessions if coming from post-booking CTA
+      if (typeof window !== "undefined" && window.location.hash === "#sessions") {
+        setTimeout(() => {
+          document.getElementById("sessions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 400);
+      }
 
       if (user?.uid) {
         setRecentLoading(true);
@@ -256,6 +262,13 @@ export default function BookPage() {
         <Link className="btn btn-primary btn-lg" href="/session-guide">
           📖 Get Familiar with the Session Room
         </Link>
+        <a
+          href="/book#sessions"
+          className="btn btn-ghost btn-lg"
+          style={{ marginTop: 10 }}
+        >
+          📋 View Your Sessions →
+        </a>
         <p style={{ marginTop: 12, fontSize: 13, color: "var(--muted)", maxWidth: 320, textAlign:"center" }}>
           Learn how your consultation works before your appointment — takes 2 minutes.
         </p>
@@ -613,7 +626,7 @@ export default function BookPage() {
                 : "Please accept consent above"}
             </button>
             <div className="fine">
-              💳 Card · Bank Transfer · 💳 Card · Bank Transfer · Secure · Auto fulfilment
+              💳 Card · Bank Transfer · USSD · Secure payment · Instant confirmation
             </div>
           </div>
         </div>

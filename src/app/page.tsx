@@ -45,68 +45,69 @@ const TESTIMONIALS = [
 ];
 
 function TestimonialsSection() {
-  const [active, setActive] = useState(0);
+  const trackRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [prevActive, setPrevActive] = useState(-1);
+  const [active, setActive] = useState(0);
+  const CARD_WIDTH_PCT = 100 / 2; // 2 cards visible baseline, handled via CSS
 
-  // Auto-slide every 5 seconds
-  useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setActive(a => {
-        setPrevActive(a);
-        return (a + 1) % TESTIMONIALS.length;
-      });
-    }, 5000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, []);
-
-  const goTo = (i: number) => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setPrevActive(active);
+  const scrollTo = (i: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    // Each card is (100/TOTAL_VISIBLE)% — we scroll so card i is centred
+    // We use scrollLeft directly so there are no CSS animation conflicts
+    const cardW = el.scrollWidth / TESTIMONIALS.length;
+    el.scrollTo({ left: cardW * i, behavior: "smooth" });
     setActive(i);
-    timerRef.current = setInterval(() => {
-      setActive(a => {
-        setPrevActive(a);
-        return (a + 1) % TESTIMONIALS.length;
-      });
-    }, 5000);
   };
 
-  const t = TESTIMONIALS[active];
+  const next = () => scrollTo((active + 1) % TESTIMONIALS.length);
+  const prev = () => scrollTo((active - 1 + TESTIMONIALS.length) % TESTIMONIALS.length);
+
+  // Auto-advance every 6 seconds
+  useEffect(() => {
+    timerRef.current = setInterval(next, 6000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   return (
-    <section className="section" style={{ background: "var(--paper)", overflow: "hidden" }}>
+    <section className="section testi-section" style={{ background: "var(--paper)", overflow: "hidden" }}>
       <div className="wrap">
         <div className="section-head">
           <div className="section-label">Voices From The Consultation Room</div>
           <h2>Patients who chose to consult differently.</h2>
         </div>
-        <div className="testi-carousel">
-          <div className="testi-card" key={active}>
-            {/* 5 stars */}
-            <div className="testi-stars">{"★".repeat(5)}</div>
-            {/* Quote */}
-            <blockquote className="testi-quote">&ldquo;{t.quote}&rdquo;</blockquote>
-            {/* Profile */}
-            <div className="testi-profile">
-              <div className="testi-avatar">{t.initial}</div>
-              <div>
-                <div className="testi-name">{t.name}</div>
-                <div className="testi-location">{t.location}</div>
+      </div>
+      {/* Full-bleed scrollable track — overflow visible so side cards peek */}
+      <div className="testi-outer">
+        <div className="testi-track" ref={trackRef}>
+          {TESTIMONIALS.map((t, i) => (
+            <div key={i} className={"testi-slide-card" + (i === active ? " active" : "")}
+              onClick={() => scrollTo(i)}
+            >
+              <div className="testi-stars">{"★".repeat(5)}</div>
+              <blockquote className="testi-quote">&ldquo;{t.quote}&rdquo;</blockquote>
+              <div className="testi-profile">
+                <div className="testi-avatar">{t.initial}</div>
+                <div>
+                  <div className="testi-name">{t.name}</div>
+                  <div className="testi-location">{t.location}</div>
+                </div>
               </div>
             </div>
-          </div>
-          {/* Carousel indicators */}
+          ))}
+        </div>
+      </div>
+      <div className="wrap">
+        <div className="testi-controls">
+          <button className="testi-arrow" onClick={prev} aria-label="Previous">‹</button>
           <div className="testi-dots">
             {TESTIMONIALS.map((_, i) => (
-              <button
-                key={i}
-                className={"testi-dot" + (i === active ? " active" : "")}
-                onClick={() => goTo(i)}
-                aria-label={`View testimonial ${i + 1}`}
-              />
+              <button key={i} className={"testi-dot" + (i === active ? " active" : "")}
+                onClick={() => scrollTo(i)} aria-label={`View testimonial ${i + 1}`} />
             ))}
           </div>
+          <button className="testi-arrow" onClick={next} aria-label="Next">›</button>
         </div>
       </div>
     </section>
@@ -146,7 +147,7 @@ function FAQSection() {
 
   return (
     <section className="section" style={{ background: "#F0FAF9" }}>
-      <div className="wrap" style={{ maxWidth: 720 }}>
+      <div className="wrap">
         <div className="section-head">
           <div className="section-label">FAQ</div>
           <h2>Questions, Answered</h2>
@@ -382,36 +383,21 @@ export default function Home() {
               No waiting rooms, no hassle.
             </p>
           </div>
-          <div className="hiw-list">
-            <div className="hiw-row">
-              <div className="hiw-num">01</div>
-              <div className="hiw-content">
-                <div className="hiw-icon">📅</div>
-                <div>
-                  <h3 className="hiw-title">Choose Your Slot</h3>
-                  <p className="hiw-desc">Browse available times for the next two weeks. Pick a slot that works — mornings, afternoons, or evenings.</p>
-                </div>
-              </div>
+          <div className="hiw-cards">
+            <div className="hiw-card">
+              <div className="hiw-card-num">01</div>
+              <h3 className="hiw-card-title">Choose Your Slot</h3>
+              <p className="hiw-card-desc">Browse available times for the next two weeks. Pick a slot that works — mornings, afternoons, or evenings.</p>
             </div>
-            <div className="hiw-row">
-              <div className="hiw-num">02</div>
-              <div className="hiw-content">
-                <div className="hiw-icon">💳</div>
-                <div>
-                  <h3 className="hiw-title">Pay Securely</h3>
-                  <p className="hiw-desc">Pay in naira using your bank card, bank transfer, or mobile money. Your slot is confirmed immediately after payment.</p>
-                </div>
-              </div>
+            <div className="hiw-card">
+              <div className="hiw-card-num">02</div>
+              <h3 className="hiw-card-title">Pay Securely</h3>
+              <p className="hiw-card-desc">Pay in naira using your bank card, bank transfer, or mobile money. Your slot is confirmed immediately after payment.</p>
             </div>
-            <div className="hiw-row">
-              <div className="hiw-num">03</div>
-              <div className="hiw-content">
-                <div className="hiw-icon">🩺</div>
-                <div>
-                  <h3 className="hiw-title">Consult Dr. Fat</h3>
-                  <p className="hiw-desc">Join your private room — voice call, live chat, and a shared countdown timer. Get your diagnosis, advice, and next steps.</p>
-                </div>
-              </div>
+            <div className="hiw-card">
+              <div className="hiw-card-num">03</div>
+              <h3 className="hiw-card-title">Consult Dr. Fat</h3>
+              <p className="hiw-card-desc">Join your private room — voice call, live chat, and a shared countdown timer. Get your diagnosis, advice, and next steps.</p>
             </div>
           </div>
         </div>
@@ -589,9 +575,9 @@ export default function Home() {
             <div className="footer-brand">
               <div className="brand" style={{ marginBottom: 4 }}>
                 <div className="brand-icon">🩺</div>
-                <div className="brand-text">
-                  <span style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>ConsultDrFat</span>
-                  <small style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.45)", letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 2, display: "block" }}>Medical Consultations</small>
+                <div className="brand-text" style={{ display: "flex", flexDirection: "column", lineHeight: 1 }}>
+                  <span style={{ fontSize: 17, fontWeight: 700, color: "#fff", whiteSpace: "nowrap" }}>ConsultDrFat</span>
+                  <small style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,.45)", letterSpacing: "0.05em", textTransform: "uppercase", marginTop: 3, whiteSpace: "nowrap", display: "block" }}>Medical Consultations</small>
                 </div>
               </div>
               <p>
@@ -614,6 +600,10 @@ export default function Home() {
           </div>
           <div className="footer-bottom">
             <span>© 2026 ConsultDrFat. All rights reserved.</span>
+            <span style={{ color: "rgba(255,255,255,.28)", fontSize: 11 }}>
+              Designed &amp; Developed by{" "}
+              <span style={{ color: "rgba(255,255,255,.45)", fontWeight: 600 }}>Olas&apos; Digital</span>
+            </span>
             <span>🔒 Encrypted · 🇳🇬 Nigeria · MDCN Registered</span>
           </div>
         </div>

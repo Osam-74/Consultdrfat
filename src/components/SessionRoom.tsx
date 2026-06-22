@@ -94,6 +94,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [replyTo, setReplyTo] = useState<{ id: string; text: string; from: string } | null>(null);
   // ── Swipe-to-tag state ──
   const [swipedMsgId, setSwipedMsgId] = useState<string | null>(null);
+  // Mobile practitioner FAB
+  const [fabOpen, setFabOpen] = useState(false);
+  const fabRef = useRef<HTMLDivElement>(null);
+  const fabDragRef = useRef<{ startX: number; startY: number; elX: number; elY: number } | null>(null);
+  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
 
@@ -126,17 +131,32 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
-  // ── Presence heartbeat — ping every 10s regardless of session state ──
-  // Presence heartbeat — stop pinging when session is complete (saves quota).
-  // 60s interval = 1 write/min per user instead of 2/min. Threshold is 120s.
+  // ── Presence heartbeat — stop unconditionally when session is complete ──
+  // We use a ref to gate the interval so there is zero window where a "complete"
+  // status change could allow a stale interval to fire.
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
+    // Always clear any existing heartbeat first
+    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     if (!user) return;
-    if (session?.status === "complete") return; // stop pinging after session ends
+    // Hard stop: never ping on a completed or non-live session
+    const status = session?.status as string | undefined;
+    if (status === "complete") return;
     const uid = user.uid;
     pingPresence(bookingId, uid);
-    const interval = setInterval(() => pingPresence(bookingId, uid), 90_000);
-    return () => clearInterval(interval);
-  }, [bookingId, user, session?.status]);
+    heartbeatRef.current = setInterval(() => {
+      // Double-check inside the interval — session may have completed since interval started
+      if ((session?.status as string) === "complete") {
+        if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+        return;
+      }
+      pingPresence(bookingId, uid);
+    }, 90_000);
+    return () => {
+      if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, user?.uid, session?.status]);
 
   // Watch presence — re-check every 15s AND whenever session doc changes
   useEffect(() => {
@@ -455,6 +475,54 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       }
     } catch { /* non-fatal */ }
   };
+
+  // ── Incoming call ring tone ──
+  // Plays a gentle double "ding-dong" that loops until the call is answered/declined
+  const ringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringCtxRef = useRef<AudioContext | null>(null);
+
+  const playDingDong = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      ringCtxRef.current = ctx;
+      // Two-tone ding (higher) then dong (lower)
+      const tones = [
+        { freq: 880, start: 0,    dur: 0.25, vol: 0.18 },
+        { freq: 660, start: 0.35, dur: 0.3,  vol: 0.14 },
+      ];
+      tones.forEach(({ freq, start, dur, vol }) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(vol, ctx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur + 0.05);
+      });
+    } catch { /* non-fatal */ }
+  };
+
+  const stopRing = () => {
+    if (ringIntervalRef.current) { clearInterval(ringIntervalRef.current); ringIntervalRef.current = null; }
+    try { ringCtxRef.current?.close(); } catch {}
+    ringCtxRef.current = null;
+  };
+
+  // Start/stop ringing based on callStatus
+  useEffect(() => {
+    const isIncoming = callStatus === "ringing" && callCaller !== role && !voiceLive;
+    if (isIncoming) {
+      // Play immediately, then every 2.2s
+      playDingDong();
+      ringIntervalRef.current = setInterval(playDingDong, 2200);
+    } else {
+      stopRing();
+    }
+    return () => stopRing();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callStatus, callCaller, role, voiceLive]);
 
   // Check remaining time and fire beeps
   useEffect(() => {
@@ -868,24 +936,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               {/* Voice call button */}
               {sessionLive && (
-                callStatus === "idle" ? (
-                  <button
-                    onClick={handleStartCall}
-                    disabled={callConnecting}
-                    title="Start voice call"
-                    style={{
-                      display:"flex",alignItems:"center",justifyContent:"center",
-                      width:36,height:36,borderRadius:10,border:"1.5px solid rgba(74,222,128,.45)",
-                      background:voiceLive?"rgba(74,222,128,.18)":"rgba(255,255,255,.06)",
-                      color:voiceLive?"#4ade80":"rgba(255,255,255,.75)",
-                      cursor:"pointer",transition:"all .15s",padding:0,
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.47 2 2 0 0 1 3.59 1.3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6.29 6.29l1.02-.88a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
-                    </svg>
-                  </button>
-                ) : voiceLive ? (
+                voiceLive ? (
+                  /* Active call — red end button */
                   <button
                     onClick={handleEndCall}
                     title="End voice call"
@@ -900,7 +952,44 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
                     </svg>
                   </button>
-                ) : null
+                ) : callStatus === "ringing" && callCaller === role ? (
+                  /* Outgoing ringing — dim cancel button */
+                  <button
+                    onClick={handleEndCall}
+                    title="Cancel call"
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,border:"1.5px solid rgba(248,113,113,.3)",
+                      background:"rgba(248,113,113,.1)",color:"rgba(248,113,113,.7)",
+                      cursor:"pointer",transition:"all .15s",padding:0,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
+                    </svg>
+                  </button>
+                ) : (
+                  /* Idle / ended / declined — green start-call button always visible */
+                  <button
+                    onClick={handleStartCall}
+                    disabled={callConnecting || callStatus === "ringing"}
+                    title={callConnecting ? "Connecting…" : "Start voice call"}
+                    style={{
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      width:36,height:36,borderRadius:10,
+                      border:"1.5px solid rgba(74,222,128,.45)",
+                      background:"rgba(255,255,255,.06)",
+                      color:"rgba(255,255,255,.75)",
+                      cursor: callConnecting ? "not-allowed" : "pointer",
+                      transition:"all .15s",padding:0,
+                      opacity: callConnecting ? 0.55 : 1,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.47 2 2 0 0 1 3.59 1.3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6.29 6.29l1.02-.88a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                    </svg>
+                  </button>
+                )
               )}
               {/* Video icon — visual only (no video in this version) */}
               <div
@@ -922,9 +1011,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           {/* ── Voice panel with call/answer model ── */}
           <div className="voice">
             <div className={"timer num " + timerCls}>{fmt(remaining)}</div>
-            <div className="tl">{complete ? "Session time complete" : "Session time remaining"}</div>
+            <div className="tl tl-sm">{complete ? "Session time complete" : "Session time remaining"}</div>
             <div className="orb" style={{ transform: `scale(${scale})` }}>
-              {voiceLive ? (micOn ? "🎙️" : "🎧") : callStatus === "ringing" ? "📞" : "🎧"}
+              {voiceLive ? (micOn ? "🎙️" : "🔇") : callStatus === "ringing" ? "📞" : "🎙️"}
             </div>
             {!sessionLive && (
               <div className="session-not-started-banner">
@@ -1268,8 +1357,89 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           {renderOverlay()}
         </div>
 
-        {/* ── Practitioner dock ── */}
+        {/* ── Practitioner dock — desktop bar + mobile FAB ── */}
         {isPract && (
+          <>
+          {/* Mobile FAB — only shown on small screens via CSS */}
+          <div
+            ref={fabRef}
+            className={"pract-fab" + (fabOpen ? " open" : "")}
+            style={fabPos ? { bottom: "auto", right: "auto", left: fabPos.x, top: fabPos.y } : {}}
+            onPointerDown={(e) => {
+              const el = fabRef.current;
+              if (!el) return;
+              const rect = el.getBoundingClientRect();
+              fabDragRef.current = { startX: e.clientX, startY: e.clientY, elX: rect.left, elY: rect.top };
+              el.setPointerCapture(e.pointerId);
+              e.preventDefault();
+            }}
+            onPointerMove={(e) => {
+              if (!fabDragRef.current) return;
+              const dx = e.clientX - fabDragRef.current.startX;
+              const dy = e.clientY - fabDragRef.current.startY;
+              if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+                const newX = Math.max(8, Math.min(window.innerWidth - 64, fabDragRef.current.elX + dx));
+                const newY = Math.max(8, Math.min(window.innerHeight - 64, fabDragRef.current.elY + dy));
+                setFabPos({ x: newX, y: newY });
+              }
+            }}
+            onPointerUp={(e) => {
+              const d = fabDragRef.current;
+              if (d) {
+                const dx = Math.abs(e.clientX - d.startX);
+                const dy = Math.abs(e.clientY - d.startY);
+                if (dx < 6 && dy < 6) setFabOpen(v => !v); // tap = toggle
+              }
+              fabDragRef.current = null;
+            }}
+          >
+            <button className="fab-toggle" aria-label="Practitioner controls">
+              {fabOpen ? "✕" : "⚙️"}
+            </button>
+            {fabOpen && (
+              <div className="fab-menu" onClick={e => e.stopPropagation()}>
+                {session.status !== "live" && (
+                  <button className="dbtn primary fab-item" onClick={() => { startSession(bookingId, session.durationMin); setFabOpen(false); }}>
+                    ▶ Start session
+                  </button>
+                )}
+                <button
+                  className={"dbtn icon-only fab-item" + (discountSent ? " success" : "")}
+                  onClick={() => { setShowDiscount(!showDiscount); setDiscountSent(false); setFabOpen(false); }}
+                  title={discountSent ? `Discount sent: ${discountCode}` : "Give client a discount code"}
+                >
+                  {discountSent ? "✓ Sent" : "🎁 Discount"}
+                </button>
+                <button
+                  className={"dbtn icon-only fab-item" + (showNotes ? " active" : "")}
+                  onClick={() => { setShowNotes(!showNotes); setFabOpen(false); }}
+                  title="Session notes"
+                >
+                  📝 Notes
+                </button>
+                {sessionLive && (
+                  <button
+                    className="dbtn fab-item"
+                    onClick={() => { practFileRef.current?.click(); setFabOpen(false); }}
+                    disabled={practUploading}
+                  >
+                    {practUploading ? "Uploading…" : "📎 Share file"}
+                  </button>
+                )}
+                <div
+                  className={"toggle icon-toggle fab-item" + (attachmentsOn ? " on" : "")}
+                  onClick={() => setAttachmentsEnabled(bookingId, !attachmentsOn)}
+                  title={attachmentsOn ? "Client uploads ON" : "Client uploads OFF"}
+                >
+                  📎 Client uploads <span className="sw" />
+                </div>
+                {nextClientLabel && (
+                  <div className="dock-next-client fab-item">⏭ Next at {nextClientLabel}</div>
+                )}
+              </div>
+            )}
+          </div>
+          {/* Desktop dock — hidden on mobile */}
           <div className="dock">
             <span className="lbl">Controls</span>
             {session.status !== "live" && (
@@ -1374,6 +1544,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </div>
             )}
           </div>
+          </> /* end isPract fragment */
         )}
       </div>
 
