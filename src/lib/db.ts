@@ -191,23 +191,38 @@ export async function clientLeftSession(bookingId: string): Promise<void> {
 }
 
 /** Notify when client enters the session room.
- *  isFirstJoin=true → "Client has joined" (first time)
- *  isFirstJoin=false/default → "Client has rejoined" (after leaving)
+ *  isFirstJoin=true  → "X has joined the session." (first time)
+ *  isFirstJoin=false → "X has rejoined the session." (return visit)
+ *
+ *  We store a special @@JOIN message format so the UI can show a
+ *  perspective-aware message without any emojis:
+ *    Practitioner sees: "<clientName> has joined the session."
+ *    Client sees:       "<doctorName> has joined the session."
+ *
+ *  Format: "@@JOIN|<clientName>|<doctorName>|<isFirst:0|1>"
  */
 export async function clientRejoinedSession(bookingId: string, isFirstJoin = false): Promise<void> {
   try {
-    // Fetch client name from booking for a personalised join message
+    // Fetch client name + doctor name from booking / settings
     let clientLabel = "Client";
+    let doctorLabel = "Dr. Fat";
     try {
-      const bkSnap = await getDoc(doc(db, "bookings", bookingId));
+      const [bkSnap, settingsSnap] = await Promise.all([
+        getDoc(doc(db, "bookings", bookingId)),
+        getDoc(doc(db, "settings", "main")),
+      ]);
       if (bkSnap.exists()) {
         const bkData = bkSnap.data() as { clientName?: string };
         if (bkData.clientName) clientLabel = bkData.clientName;
       }
-    } catch { /* fall back to "Client" */ }
-    const msg = isFirstJoin
-      ? `✅ ${clientLabel} has joined the session.`
-      : `↩️ ${clientLabel} has rejoined the session.`;
+      if (settingsSnap.exists()) {
+        const sd = settingsSnap.data() as { practitionerName?: string };
+        if (sd.practitionerName) doctorLabel = sd.practitionerName;
+      }
+    } catch { /* fall back to defaults */ }
+
+    const flag = isFirstJoin ? "1" : "0";
+    const msg = `@@JOIN|${clientLabel}|${doctorLabel}|${flag}`;
     await sendMessage(bookingId, "system", msg);
     await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
   } catch { /* non-fatal */ }

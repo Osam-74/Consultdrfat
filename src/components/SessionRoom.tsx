@@ -41,6 +41,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [now, setNow] = useState(Date.now());
   const [draft, setDraft] = useState("");
   const [chosen, setChosen] = useState<number | null>(null);
+  const [showExtendNow, setShowExtendNow] = useState(false); // extend during live session
   // Practitioner custom extension offer form
   const [extMinutes, setExtMinutes] = useState(15);
   const [extAmount, setExtAmount] = useState(0);
@@ -403,6 +404,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       setMicOn(false);
       setVoiceLive(false);
+      // Play call-drop tone so both parties know the call ended
+      playCallDropSound();
       await endCall(bookingId, role);
     } catch (err) {
       console.error("End call error:", err);
@@ -417,14 +420,20 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     if (file.size > MAX) { alert("File must be under 20 MB."); return; }
     setPractUploading(true);
     try {
+      // Use the same uploadSessionFile function — API_BASE points to the worker
+      // The worker accepts uploads from both client and practitioner equally
       const uploaded = await uploadSessionFile(bookingId, file, API_BASE);
       const isImage = file.type.startsWith("image/");
       const label = isImage ? `🖼️ ${file.name}` : `📎 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
       await sendMessage(bookingId, role, label, uploaded);
     } catch (err) {
       console.error("Practitioner file share error:", err);
+      // If it's a CORS/network error, give a more helpful message
       const msg = err instanceof Error ? err.message : "Upload failed";
-      alert(`Could not share file: ${msg}`);
+      const hint = msg.includes("fetch") || msg.toLowerCase().includes("failed to fetch")
+        ? "Network error — check your connection or try again."
+        : msg;
+      alert(`Could not share file: ${hint}`);
     } finally {
       setPractUploading(false);
       if (practFileRef.current) practFileRef.current.value = "";
@@ -589,6 +598,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     // The practitioner can still offer an extension.
     if (remainingMs <= 0 && !autoEndedRef.current) {
       autoEndedRef.current = true;
+      // Play session-end tone IMMEDIATELY when timer hits 00:00
+      playCallDropSound();
       // End voice call immediately
       if (voiceRef.current) {
         voiceRef.current.stop().catch(() => {});
@@ -764,9 +775,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       });
       setDiscountCode(dc.code);
 
-      // 2. Send in-session chat message so client sees code immediately
-      await sendMessage(bookingId, "system",
-        `🎁 You've received a ${discountPct}% discount! Code: ${dc.code} (valid 90 days — use it on your next booking).`
+      // 2. Send as a practitioner chat message so client sees it prominently
+      await sendMessage(bookingId, "practitioner",
+        `I've sent you a ${discountPct}% discount code for your next booking. Code: ${dc.code} — valid for 90 days. You can use it when you book your next session.`
       );
 
       // 3. Fire-and-forget the email — don't await it (avoids blocking on mail extension)
@@ -1230,6 +1241,15 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   const isDoc   = m.fileUrl && !isImage;
                   const canReply = m.from !== "system" && sessionLive;
                   const isSwiped = swipedMsgId === m.id;
+                  // Decode @@JOIN perspective-aware join message (no emojis)
+                  let displayText = m.text;
+                  if (m.from === "system" && m.text.startsWith("@@JOIN|")) {
+                    const parts = m.text.split("|");
+                    const cName = parts[1] || "Client";
+                    const dName = parts[2] || "Dr. Fat";
+                    const joined = parts[3] === "1" ? "joined" : "rejoined";
+                    displayText = isPract ? `${cName} has ${joined} the session.` : `${dName} has ${joined} the session.`;
+                  }
                   return (
                     <div
                       key={m.id}
@@ -1284,14 +1304,12 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                         const dy = e.changedTouches[0].clientY - touchStartY.current;
                         const isHoriz = Math.abs(dx) > Math.abs(dy) * 1.5;
                         if (!isHoriz) return;
-                        // mine (right side) → swipe LEFT to reveal reply button
-                        // theirs (left side) → swipe RIGHT to reveal reply button
+                        // mine (right side) → swipe LEFT to tag instantly
+                        // theirs (left side) → swipe RIGHT to tag instantly
                         const isMine = cls === "mine";
-                        if (isMine && dx < -40) {
-                          setSwipedMsgId(m.id);
-                        } else if (!isMine && dx > 40) {
-                          setSwipedMsgId(m.id);
-                        } else {
+                        if ((isMine && dx < -40) || (!isMine && dx > 40)) {
+                          // Auto-tag immediately — no extra tap needed
+                          setReplyTo({ id: m.id, text: m.text, from: m.from });
                           setSwipedMsgId(null);
                         }
                       }}
@@ -1365,7 +1383,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                         </div>
                       )}
                       {/* Text label — pre-wrap for proper word wrapping */}
-                      {(!isImage && !isDoc) && <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.text}</span>}
+                      {(!isImage && !isDoc) && <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{displayText}</span>}
                       {(isImage || isDoc) && (
                         <span style={{fontSize:11,opacity:.6,display:"block",marginTop:3,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
                           {m.text.replace(/^[🖼️📎]+\s*/,"")}
@@ -1463,6 +1481,84 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
           {/* Overlays */}
           {renderOverlay()}
+          {/* Extend Time panel — available anytime during a live session */}
+          {isPract && showExtendNow && sessionLive && (
+            <div className="overlay" style={{ zIndex: 50 }}>
+              <div className="ov-icon">⏱</div>
+              <h3>Offer more time</h3>
+              <p style={{ color: "rgba(255,255,255,.7)", fontSize: 14, margin: "0 0 16px" }}>
+                Add extra time to the ongoing session.
+              </p>
+              {queueWarn && <p style={{ color: "#F5D08A", fontSize: 13, marginBottom: 12 }}>{queueWarn}</p>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 260 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: "rgba(255,255,255,.7)", fontWeight: 600 }}>Extension minutes</label>
+                  <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                    {[5, 10, 15, 20, 30].map(mn => (
+                      <button key={mn} onClick={() => setExtMinutes(mn)}
+                        style={{
+                          padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                          background: extMinutes === mn ? "var(--teal)" : "rgba(255,255,255,.12)",
+                          color: "#fff", fontWeight: 700, fontSize: 13, transition: "all .15s",
+                        }}>+{mn}m</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: "rgba(255,255,255,.7)", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span>Amount to pay (₦)</span>
+                    <button onClick={() => setExtIsFree(!extIsFree)}
+                      style={{
+                        padding: "3px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+                        background: extIsFree ? "var(--teal)" : "rgba(255,255,255,.12)",
+                        color: "#fff", fontWeight: 600, fontSize: 11,
+                      }}>{extIsFree ? "✓ Free" : "Mark as free"}</button>
+                  </label>
+                  <input
+                    type="number"
+                    value={extIsFree ? 0 : extAmount}
+                    disabled={extIsFree}
+                    onChange={e => setExtAmount(Math.max(0, +e.target.value))}
+                    placeholder="0"
+                    style={{
+                      width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8,
+                      border: "1.5px solid rgba(255,255,255,.2)",
+                      background: extIsFree ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.1)",
+                      color: "#fff", fontSize: 15, outline: "none", fontFamily: "inherit",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="obtn ghost"
+                    onClick={() => setShowExtendNow(false)}
+                    style={{ flex: 1 }}
+                  >Cancel</button>
+                  <button
+                    className="obtn amber"
+                    disabled={extMinutes === 0}
+                    onClick={async () => {
+                      if (!extMinutes) return;
+                      try {
+                        await setOffer(bookingId, {
+                          minutes: extMinutes,
+                          priceNGN: extIsFree ? 0 : extAmount,
+                          isFree: extIsFree,
+                          status: "sent",
+                        });
+                        setShowExtendNow(false);
+                        setChosen(extMinutes);
+                      } catch (err) {
+                        console.error("Offer extension error:", err);
+                        alert("Could not send extension offer. Check your connection.");
+                      }
+                    }}
+                    style={{ flex: 2 }}
+                  >Send offer to client</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Practitioner dock — desktop bar + mobile FAB ── */}
@@ -1543,7 +1639,14 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 {sessionLive && (
                   <button
                     className="fab-action"
-                    onClick={() => { setChosen(0); setFabOpen(false); }}
+                    onClick={() => {
+                      if (complete) {
+                        setChosen(0); // post-timer overlay flow
+                      } else {
+                        setShowExtendNow(true); // live-session extend panel
+                      }
+                      setFabOpen(false);
+                    }}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>
                     Extend Time

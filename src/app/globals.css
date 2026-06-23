@@ -451,6 +451,25 @@ img { max-width: 100%; height: auto; display: block; }
   box-shadow: 0 3px 12px rgba(14,138,122,.35);
   transform: translateY(-1px);
 }
+/* Taken / reserved / booked slot — grayed out, not clickable */
+.slot.taken {
+  background: #f2f2f2;
+  border-color: #ddd;
+  color: #aaa;
+  text-decoration: line-through;
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+  transform: none;
+  pointer-events: none;
+}
+.slot.taken:hover {
+  background: #f2f2f2;
+  border-color: #ddd;
+  color: #aaa;
+  transform: none;
+  box-shadow: none;
+}
 .muted-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 14px; margin-bottom: 7px; font-weight: 600; }
 .sumline { display: flex; gap: 10px; font-size: 14px; margin-bottom: 9px; align-items: flex-start; min-width: 0; overflow: hidden; }
 .sumline .ic { color: var(--teal); font-size: 15px; margin-top: 2px; }

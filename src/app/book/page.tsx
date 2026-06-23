@@ -46,6 +46,7 @@ export default function BookPage() {
   // Slot reservation — when a slot is selected we write a 5-min hold to Firestore
   // via the worker so other clients see it as taken immediately.
   const [reservedSlot, setReservedSlot] = useState<Slot | null>(null);
+  const [takenMs, setTakenMs] = useState<Set<number>>(new Set()); // ALL taken slot timestamps for grayed-out display
   const [reserveCountdown, setReserveCountdown] = useState<number>(0); // seconds left
   const reserveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reserveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,6 +96,9 @@ export default function BookPage() {
       } catch { /* non-fatal — falls back to just user's own bookings */ }
 
       setSlots(generateSlots(s, t, e, taken));
+      setTakenMs(taken);
+      // Generate ALL slots including taken ones — to show grayed-out state
+      setAllSlotsByDay(groupByDay(generateSlots(s, t, e, new Set<number>())));
       setReady(true);
       // Auto-scroll to #sessions if coming from post-booking CTA
       if (typeof window !== "undefined" && window.location.hash === "#sessions") {
@@ -158,6 +162,8 @@ export default function BookPage() {
   }, [recentItems.length]);
 
   const byDay = useMemo(() => groupByDay(slots), [slots]);
+  // allSlotsByDay includes taken slots (for grayed-out display) — generated from settings+templates WITHOUT taken filter
+  const [allSlotsByDay, setAllSlotsByDay] = useState<Map<string, Slot[]>>(new Map());
   const cells = useMemo(() => {
     const now = new Date(); now.setHours(0,0,0,0);
     const start = new Date(now); start.setDate(now.getDate() - now.getDay());
@@ -179,9 +185,18 @@ export default function BookPage() {
     : settings.priceNGN;
 
   // ── Slot reservation helpers ──
-  const releaseReservation = () => {
+  const releaseReservation = (slotToRelease?: Slot) => {
     if (reserveTimerRef.current) { clearInterval(reserveTimerRef.current); reserveTimerRef.current = null; }
     if (reserveTimeoutRef.current) { clearTimeout(reserveTimeoutRef.current); reserveTimeoutRef.current = null; }
+    // Release the soft-hold on the worker
+    const slot = slotToRelease ?? reservedSlot;
+    if (slot && user?.uid && API_BASE) {
+      fetch(`${API_BASE}/release`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotStartMs: slot.start.getTime(), clientId: user.uid }),
+      }).catch(() => {/* non-fatal */});
+    }
     setReservedSlot(null);
     setReserveCountdown(0);
     setTimesCollapsed(false);
@@ -193,6 +208,17 @@ export default function BookPage() {
     setReservedSlot(slot);
     setTimesCollapsed(true); // collapse time list to show just selected + reserve message
     setReserveCountdown(300); // 5 minutes = 300s
+
+    // Write soft-hold to worker so other clients see slot as taken immediately
+    // Also add to local takenMs so even this client sees it grayed-out if deselected
+    setTakenMs(prev => { const n = new Set(prev); n.add(slot.start.getTime()); return n; });
+    if (user?.uid && API_BASE) {
+      fetch(`${API_BASE}/reserve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotStartMs: slot.start.getTime(), clientId: user.uid }),
+      }).catch(() => {/* non-fatal */});
+    }
 
     // Countdown ticker
     let remaining = 300;
@@ -224,7 +250,10 @@ export default function BookPage() {
               const res = await fetch(`${API_BASE}/taken-slots`);
               if (res.ok) { const d = await res.json(); if (Array.isArray(d.taken)) d.taken.forEach((ms: number) => taken.add(ms)); }
             } catch {}
-            setSlots(generateSlots(s, t, e, taken));
+            const freshSlots = generateSlots(s, t, e, taken);
+            setSlots(freshSlots);
+            setTakenMs(taken);
+            setAllSlotsByDay(groupByDay(generateSlots(s, t, e, new Set<number>())));
           } catch {}
         })();
       }
@@ -441,20 +470,34 @@ export default function BookPage() {
                   {selSlot.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </div>
               ) : (
-                daySlots.map((s) => {
-                  const t = s.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                  const sel = selSlot?.start.getTime() === s.start.getTime();
-                  return (
-                    <div
-                      key={s.start.getTime()}
-                      className={"slot" + (sel ? " sel" : "")}
-                      onClick={() => { setSelSlot(s); reserveSlot(s); }}
-                    >{t}</div>
-                  );
-                })
+                (() => {
+                  // Show ALL slots for the day (available + taken), grayed-out if taken
+                  const fullDaySlots = allSlotsByDay.get(selDay!) ?? daySlots;
+                  return fullDaySlots.map((s) => {
+                    const t = s.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                    const sel = selSlot?.start.getTime() === s.start.getTime();
+                    const isReservedByMe = reservedSlot?.start.getTime() === s.start.getTime();
+                    const isTaken = takenMs.has(s.start.getTime()) && !isReservedByMe;
+                    const isAvailable = !isTaken;
+                    return (
+                      <div
+                        key={s.start.getTime()}
+                        className={"slot" + (sel ? " sel" : "") + (isTaken ? " taken" : "")}
+                        onClick={() => { if (isAvailable) { setSelSlot(s); reserveSlot(s); } }}
+                        title={isTaken ? "This time slot is already booked" : undefined}
+                        style={isTaken ? { opacity: 0.38, cursor: "not-allowed", background: "rgba(0,0,0,.08)", color: "var(--muted)", textDecoration: "line-through", pointerEvents: "none" } : undefined}
+                      >{t}{isTaken ? " ·" : ""}</div>
+                    );
+                  });
+                })()
               )}
-              {selDay && daySlots.length === 0 && (
+              {selDay && (allSlotsByDay.get(selDay) ?? daySlots).length === 0 && (
                 <p style={{ color: "var(--muted)", fontSize: 13.5, gridColumn: "1 / -1" }}>No open slots this day.</p>
+              )}
+              {selDay && daySlots.length === 0 && (allSlotsByDay.get(selDay) ?? []).length > 0 && (
+                <p style={{ color: "var(--muted)", fontSize: 13, gridColumn: "1 / -1", textAlign: "center" }}>
+                  All slots for this day are booked. Please select another date.
+                </p>
               )}
             </div>
           </div>

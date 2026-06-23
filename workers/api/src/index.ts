@@ -224,39 +224,132 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
-    // CORS preflight
+    // CORS preflight — handles ALL paths
     if (req.method === "OPTIONS") {
-      return new Response(null, { headers: cors(env.ALLOW_ORIGIN) });
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization",
+          "Access-Control-Max-Age": "86400",
+        },
+      });
     }
 
     // ── Taken slots — returns all active booking start times ─────────────────
     if (url.pathname === "/taken-slots" && req.method === "GET") {
       try {
-        const token = await getFirebaseToken(env.FIREBASE_SA_JSON);
-        // Query bookings where status == "paid" OR status == "held"
-        // We need both — paid = confirmed, held = pending payment
-        const [paidDocs, heldDocs] = await Promise.all([
-          firestoreQuery(env.FIREBASE_PROJECT_ID, token, "bookings", [
-            { field: "status", op: "EQUAL", value: "paid" },
-          ]),
-          firestoreQuery(env.FIREBASE_PROJECT_ID, token, "bookings", [
-            { field: "status", op: "EQUAL", value: "held" },
-          ]),
-        ]);
+        // getFirebaseAccessToken (correct function name)
+        const token = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
+        // Query all non-cancelled, non-completed statuses:
+        // "held" = booking created, payment pending
+        // "paid" = confirmed booking
+        // "reserved" = client-side soft-hold (5 min)
+        const statuses = ["held", "paid", "reserved"];
+        const allDocs: Array<Record<string, unknown>> = [];
+        await Promise.all(
+          statuses.map(async (st) => {
+            try {
+              const docs = await firestoreQuery(env.FIREBASE_PROJECT_ID, token, "bookings", [
+                { field: "status", op: "EQUAL", value: st },
+              ]);
+              allDocs.push(...docs);
+            } catch { /* skip failed status query */ }
+          })
+        );
 
-        const allDocs = [...paidDocs, ...heldDocs];
+        // Also include "pending" status if used
+        try {
+          const pendingDocs = await firestoreQuery(env.FIREBASE_PROJECT_ID, token, "bookings", [
+            { field: "status", op: "EQUAL", value: "pending" },
+          ]);
+          allDocs.push(...pendingDocs);
+        } catch {}
+
         const takenSlots: number[] = [];
         for (const fields of allDocs) {
-          // Extract slotStart timestamp value
           const ss = fields.slotStart as { timestampValue?: string; integerValue?: string } | undefined;
           if (ss?.timestampValue) {
             takenSlots.push(new Date(ss.timestampValue).getTime());
+          } else if (ss?.integerValue) {
+            takenSlots.push(Number(ss.integerValue));
           }
         }
+        // Also read slotReservations (soft holds from the booking UI)
+        try {
+          const resToken = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
+          const resUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/slotReservations`;
+          const resRes = await fetch(resUrl, {
+            headers: { Authorization: `Bearer ${resToken}` },
+          });
+          if (resRes.ok) {
+            const resData = await resRes.json() as { documents?: Array<{ fields?: Record<string, unknown> }> };
+            const now = new Date();
+            for (const rdoc of resData.documents ?? []) {
+              const f = rdoc.fields;
+              if (!f) continue;
+              const exp = f.expiresAt as { timestampValue?: string } | undefined;
+              if (exp?.timestampValue && new Date(exp.timestampValue) > now) {
+                const ms = f.slotStartMs as { integerValue?: string } | undefined;
+                if (ms?.integerValue) takenSlots.push(Number(ms.integerValue));
+              }
+            }
+          }
+        } catch { /* non-fatal */ }
 
-        return json({ taken: takenSlots }, env);
+        // Deduplicate
+        const unique = [...new Set(takenSlots)];
+        return json({ taken: unique }, env);
       } catch (err) {
         return json({ error: "Failed to fetch taken slots", detail: String(err) }, env, 500);
+      }
+    }
+
+    // ── Reserve a slot (soft-hold 5 min) ────────────────────────────────────────
+    if (url.pathname === "/reserve" && req.method === "POST") {
+      try {
+        const body = await req.json() as { slotStartMs?: number; clientId?: string };
+        if (!body.slotStartMs || !body.clientId) {
+          return json({ error: "slotStartMs and clientId required" }, env, 400);
+        }
+        const token = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+        const reservationId = `res_${body.clientId}_${body.slotStartMs}`;
+        const patchUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/slotReservations/${reservationId}`;
+        const res2 = await fetch(patchUrl, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fields: {
+              slotStartMs: { integerValue: String(body.slotStartMs) },
+              clientId: { stringValue: body.clientId },
+              expiresAt: { timestampValue: expiresAt },
+              status: { stringValue: "reserved" },
+            }
+          }),
+        });
+        if (!res2.ok) throw new Error(await res2.text());
+        return json({ ok: true, reservationId, expiresAt }, env);
+      } catch (err) {
+        return json({ error: "Reserve failed", detail: String(err) }, env, 500);
+      }
+    }
+
+    // ── Release a slot reservation ─────────────────────────────────────────────
+    if (url.pathname === "/release" && req.method === "POST") {
+      try {
+        const body = await req.json() as { slotStartMs?: number; clientId?: string };
+        if (!body.slotStartMs || !body.clientId) {
+          return json({ error: "slotStartMs and clientId required" }, env, 400);
+        }
+        const token = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
+        const reservationId = `res_${body.clientId}_${body.slotStartMs}`;
+        const delUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/slotReservations/${reservationId}`;
+        await fetch(delUrl, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+        return json({ ok: true }, env);
+      } catch (err) {
+        return json({ error: "Release failed", detail: String(err) }, env, 500);
       }
     }
 
@@ -266,7 +359,7 @@ export default {
         ok: true,
         service: "consultdrfat-api",
         ts: Date.now(),
-        endpoints: ["/health", "/verify", "/webhook", "/turn", "/upload", "/files/{key}", "/taken-slots"],
+        endpoints: ["/health", "/verify", "/webhook", "/turn", "/upload", "/files/{key}", "/taken-slots", "/reserve", "/release"],
       }, env);
     }
 
@@ -446,7 +539,15 @@ export default {
       const publicUrl = env.R2_PUBLIC_BASE
         ? `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`
         : `${url.origin}/files/${key}`;
-      return json({ ok: true, url: publicUrl }, env, 200);
+      return new Response(JSON.stringify({ ok: true, url: publicUrl }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization",
+        },
+      });
     }
 
     // ── Serve R2 files directly (fallback when R2_PUBLIC_BASE is not set) ──────
