@@ -314,7 +314,8 @@ export default {
           return json({ error: "slotStartMs and clientId required" }, env, 400);
         }
         const token = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
-        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+        const expiresMs = Date.now() + 5 * 60 * 1000;
+        const expiresAt = new Date(expiresMs).toISOString();
         const reservationId = `res_${body.clientId}_${body.slotStartMs}`;
         const patchUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/slotReservations/${reservationId}`;
         const res2 = await fetch(patchUrl, {
@@ -324,7 +325,9 @@ export default {
             fields: {
               slotStartMs: { integerValue: String(body.slotStartMs) },
               clientId: { stringValue: body.clientId },
+              // Store as Firestore Timestamp so queries using Timestamp.now() work correctly
               expiresAt: { timestampValue: expiresAt },
+              expiresAtMs: { integerValue: String(expiresMs) },
               status: { stringValue: "reserved" },
             }
           }),
@@ -350,6 +353,46 @@ export default {
         return json({ ok: true }, env);
       } catch (err) {
         return json({ error: "Release failed", detail: String(err) }, env, 500);
+      }
+    }
+
+    // ── Check if a slot is still available (pre-booking guard) ─────────────────
+    if (url.pathname === "/check-slot" && req.method === "POST") {
+      try {
+        const body = await req.json() as { slotStartMs?: number };
+        if (!body.slotStartMs) return json({ available: false, error: "slotStartMs required" }, env, 400);
+        const token = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
+        // Query for any non-cancelled booking at this exact slot time
+        const conflictDocs = await firestoreQuery(
+          env.FIREBASE_PROJECT_ID, token, "bookings",
+          [{ field: "slotStart", op: "EQUAL", value: body.slotStartMs }]
+        ).catch(() => [] as Array<Record<string, unknown>>);
+        const blocked = conflictDocs.some(d => {
+          const status = (d.status as { stringValue?: string })?.stringValue;
+          return status && !["cancelled"].includes(status);
+        });
+        // Also check slotReservations
+        let reserved = false;
+        try {
+          const resUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/slotReservations`;
+          const resRes = await fetch(resUrl, { headers: { Authorization: `Bearer ${token}` } });
+          if (resRes.ok) {
+            const resData = await resRes.json() as { documents?: Array<{ fields?: Record<string, unknown> }> };
+            const now = Date.now();
+            for (const rdoc of resData.documents ?? []) {
+              const f = rdoc.fields;
+              if (!f) continue;
+              const ms = (f.slotStartMs as { integerValue?: string })?.integerValue;
+              const expMs = (f.expiresAtMs as { integerValue?: string })?.integerValue;
+              const exp = (f.expiresAt as { timestampValue?: string })?.timestampValue;
+              const isExpired = expMs ? now > Number(expMs) : (exp ? now > new Date(exp).getTime() : true);
+              if (!isExpired && ms && Number(ms) === body.slotStartMs) { reserved = true; break; }
+            }
+          }
+        } catch { /* non-fatal */ }
+        return json({ available: !blocked && !reserved }, env);
+      } catch (err) {
+        return json({ available: false, error: String(err) }, env, 500);
       }
     }
 

@@ -1,7 +1,7 @@
 # This workflow is DISABLED — Cloudflare Pages uses direct Git integration instead.
 # Go to: dash.cloudflare.com → Workers & Pages → consultdrfat → Settings → Builds & deployments
 # Build command: npm run build
-# Build output directory: out
+# Build output directory: .next  (NOT "out" — this is a Next.js SSR app, not static export)
 # Node.js version: 22
 #
 # To re-enable GitHub Actions deployment, uncomment below and add these GitHub secrets:
@@ -37,4 +37,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy out --project-name=consultdrfat --commit-dirty=true
+          command: pages deploy .next --project-name=consultdrfat --commit-dirty=true

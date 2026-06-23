@@ -97,13 +97,15 @@ export default function BookPage() {
       // Also read slotReservations directly from Firestore as client-side fallback
       // (catches active soft-holds from the booking UI)
       try {
-        const { getDocs, collection, where, query: fsQuery } = await import("firebase/firestore");
+        const { getDocs, collection, where, query: fsQuery, Timestamp: FsTimestamp } = await import("firebase/firestore");
         const { db } = await import("@/lib/firebase");
+        // Use Firestore Timestamp for comparison (not ISO string — type mismatch causes no results)
+        const nowTs = FsTimestamp.now();
         const resSnap = await getDocs(
-          fsQuery(collection(db, "slotReservations"), where("expiresAt", ">", new Date().toISOString()))
+          fsQuery(collection(db, "slotReservations"), where("expiresAt", ">", nowTs))
         );
         resSnap.forEach((rdoc) => {
-          const d = rdoc.data() as { slotStartMs?: number; expiresAt?: string };
+          const d = rdoc.data() as { slotStartMs?: number };
           if (d.slotStartMs) taken.add(d.slotStartMs);
         });
       } catch { /* non-fatal */ }
@@ -292,27 +294,28 @@ export default function BookPage() {
     const email = user.email ?? "";
     if (!email.includes("@")) { alert("No email on your Google account. Sign out and try again."); return; }
 
-    // ── Double-booking prevention: re-check taken slots at submission time ──
-    // The slot list may have been built minutes ago — verify the slot is still free
+    // ── Double-booking prevention: atomic slot check right before payment ──
+    // Uses /check-slot which queries Firestore via service account (bypasses RLS)
+    // for the exact slotStartMs — most reliable check possible before payment opens
     try {
       if (API_BASE) {
-        const res = await fetch(`${API_BASE}/taken-slots`);
+        const res = await fetch(`${API_BASE}/check-slot`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slotStartMs: selSlot.start.getTime() }),
+        });
         if (res.ok) {
-          const data = await res.json();
-          const taken = (data.taken as number[]) ?? [];
-          const slotMs = selSlot.start.getTime();
-          // Check exact match or overlap (within 1 minute tolerance)
-          const isTaken = taken.some((ms) => Math.abs(ms - slotMs) < 60_000);
-          if (isTaken) {
+          const data = await res.json() as { available?: boolean };
+          if (data.available === false) {
             alert("Sorry, this slot was just booked by someone else. Please select another time.");
+            setSelSlot(null);
             setStatus("idle");
-            // Refresh slots
             window.location.reload();
             return;
           }
         }
       }
-    } catch { /* non-fatal — proceed with booking */ }
+    } catch { /* non-fatal — proceed with booking if worker unreachable */ }
 
     setStatus("paying");
     let createdId: string | null = null;
