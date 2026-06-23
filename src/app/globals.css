@@ -1074,154 +1074,6 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   /* Admin summary grid → 2 cols on mobile */
   .admin-summary-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; margin: 14px 0 !important; }
 
-  /* ═══════════════════════════════════════════════════════
-     SESSION ROOM — MOBILE FIXED-LAYER LAYOUT
-     Header: fixed top   |   Composer: fixed bottom   |   Msgs: fills between
-     This is the ONLY reliable way to pin the input box above the keyboard
-     on Android and iOS without it scrolling or jumping around.
-     ═══════════════════════════════════════════════════════ */
-
-  /* 1. Root container: lock to full viewport — no page scroll possible */
-  .room-bg {
-    position: fixed !important;
-    top: 0; left: 0; right: 0; bottom: 0;
-    width: 100%; height: 100%;
-    overflow: hidden !important;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* 2. Header: fixed to top — never scrolls.
-        12px side margins give breathing room and match the pane card margins. */
-  .room-top {
-    position: fixed !important;
-    top: 0; left: 0; right: 0;
-    z-index: 100;
-    padding: 10px 14px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    overflow: hidden;
-  }
-  .room-top > a { flex-shrink: 0; }
-  .room-top > div { flex-shrink: 0; }
-  .room-top .live-badge {
-    white-space: nowrap;
-    flex-shrink: 0;
-    font-size: 11px;
-  }
-
-  .room-top .tag { font-size: 10px; padding: 3px 10px; }
-
-  /* 3. Stage: fills between header and bottom. Not scrollable itself.
-        top uses --room-top-h CSS var set by useLayoutEffect (default 56px).
-        Side padding matches pane margins so everything lines up. */
-  .stage {
-    position: fixed !important;
-    top: var(--room-top-h, 56px) !important;
-    left: 0 !important; right: 0 !important;
-    /* Stop ABOVE the fixed composer so the pane card bottom edge is visible */
-    bottom: calc(var(--composer-h, 72px) + 8px) !important;
-    overflow: hidden !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    display: flex;
-    flex-direction: column;
-  }
-  /* Stage title area (Your session / Your session with...) — add side margins */
-  .stage-title-block {
-    padding: 6px 22px;
-  }
-  .stage > .stage-title-block:first-child {
-    padding-top: 10px;
-  }
-  .stage h2 { font-size: 18px; }
-
-  /* 4. Pane: fills the stage with 10px side margins so the card border-radius
-        is visible. The composer (below the pane) stays full-width — untouched. */
-  .pane {
-    flex: 1;
-    margin: 0 15px 20px;        /* left/right + 20px bottom gap above composer */
-    border-radius: 16px !important;  /* all corners rounded — bottom now visible */
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  /* 5. Pane header */
-  .pane-h {
-    padding: 10px 20px;
-    gap: 8px;
-    flex-shrink: 0;
-    overflow: visible;
-    flex-wrap: nowrap;
-  }
-  .pane-h .nm { font-size: 13px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pane-h .role { font-size: 10.5px; }
-  .pane-h > div:last-child { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
-
-  /* 6. Voice panel — compact on mobile, no extra blank space */
-  .voice { padding: 8px 17px 6px; }
-  .timer { font-size: 26px; }
-  /* Orb is now inline beside .vn text — no separate block with margin */
-  .orb { font-size: 18px; width: auto; height: auto; margin: 0; }
-  .vn { margin-bottom: 4px; }
-  .controls { gap: 8px; flex-wrap: wrap; justify-content: center; }
-  .ctl { padding: 7px 10px; font-size: 11.5px; }
-
-  /* 7. Chat: fills ALL remaining space between voice panel and composer */
-  .chat {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  /* 8. Msgs: THE ONLY SCROLLABLE AREA.
-        padding-bottom = actual composer height (set by useLayoutEffect via CSS var)
-        + 8px extra clearance so the last message is never hidden behind the composer.
-        Default 72px covers most devices before JS measurement fires. */
-  .msgs {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 10px 17px 16px; /* stage stops above composer — no calc needed */
-  }
-
-  /* 9. Composer: FIXED to bottom — always above keyboard, never scrolls
-        width: 100% + no border-radius means it spans the full width flush
-        env(safe-area-inset-bottom) handles iPhone home bar */
-  .composer {
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    width: 100% !important;
-    z-index: 200 !important;
-    border-radius: 0 !important;
-    border-top: 1.5px solid rgba(0,0,0,.1);
-    box-shadow: 0 -3px 16px rgba(0,0,0,.12);
-    padding: 10px 17px !important;
-    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
-    background: #fff !important;
-    box-sizing: border-box;
-  }
-
-  /* 10. Dock: sits above composer — need bottom padding on msgs to clear it */
-  .dock { padding: 10px 14px; gap: 8px; }
-  .dbtn { padding: 6px 12px; font-size: 12px; }
-
-  /* 11. Overlay modals */
-  .overlay { padding: 22px 16px; border-radius: 0; }
-  .overlay h3 { font-size: 17px; }
-  .overlay p { font-size: 13px; }
-  .ov-actions { gap: 8px; }
-  .obtn { padding: 9px 14px; font-size: 13px; }
-  .timeopts .mm { padding: 8px 12px; font-size: 13px; }
 }
 
 
@@ -3010,4 +2862,162 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 @media (max-width: 768px) {
   .pract-fab { display: block; }
   .dock { display: none !important; } /* hide desktop dock on mobile */
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SESSION ROOM — MOBILE LAYOUT  (≤768px)
+   Placed at end of file so these rules always win the cascade over the
+   global desktop .stage / .pane / .msgs definitions above.
+════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* ═══════════════════════════════════════════════════════
+     SESSION ROOM — MOBILE FIXED-LAYER LAYOUT
+     Header: fixed top   |   Composer: fixed bottom   |   Msgs: fills between
+     This is the ONLY reliable way to pin the input box above the keyboard
+     on Android and iOS without it scrolling or jumping around.
+     ═══════════════════════════════════════════════════════ */
+
+  /* 1. Root container: lock to full viewport — no page scroll possible */
+  .room-bg {
+    position: fixed !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%; height: 100%;
+    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 2. Header: fixed to top — never scrolls.
+        12px side margins give breathing room and match the pane card margins. */
+  .room-top {
+    position: fixed !important;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    overflow: hidden;
+  }
+  .room-top > a { flex-shrink: 0; }
+  .room-top > div { flex-shrink: 0; }
+  .room-top .live-badge {
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+
+  .room-top .tag { font-size: 10px; padding: 3px 10px; }
+
+  /* 3. Stage: fills between header and bottom. Not scrollable itself.
+        top uses --room-top-h CSS var set by useLayoutEffect (default 56px).
+        Side padding matches pane margins so everything lines up. */
+  .stage {
+    position: fixed !important;
+    top: var(--room-top-h, 56px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    /* Stop above composer + 20px breathing gap so card bottom edge is always visible */
+    bottom: calc(var(--composer-h, 72px) + 20px) !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Stage title area (Your session / Your session with...) — add side margins */
+  .stage-title-block {
+    padding: 6px 22px;
+  }
+  .stage > .stage-title-block:first-child {
+    padding-top: 10px;
+  }
+  .stage h2 { font-size: 18px; }
+
+  /* 4. Pane: fills the stage with 10px side margins so the card border-radius
+        is visible. The composer (below the pane) stays full-width — untouched. */
+  .pane {
+    flex: 1;
+    margin: 0 15px;             /* left/right breathing room; stage bottom already stops above composer */
+    border-radius: 16px !important;  /* all corners rounded — bottom now visible */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* 5. Pane header */
+  .pane-h {
+    padding: 10px 20px;
+    gap: 8px;
+    flex-shrink: 0;
+    overflow: visible;
+    flex-wrap: nowrap;
+  }
+  .pane-h .nm { font-size: 13px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pane-h .role { font-size: 10.5px; }
+  .pane-h > div:last-child { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+
+  /* 6. Voice panel — compact on mobile, no extra blank space */
+  .voice { padding: 8px 17px 6px; }
+  .timer { font-size: 26px; }
+  /* Orb is now inline beside .vn text — no separate block with margin */
+  .orb { font-size: 18px; width: auto; height: auto; margin: 0; }
+  .vn { margin-bottom: 4px; }
+  .controls { gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .ctl { padding: 7px 10px; font-size: 11.5px; }
+
+  /* 7. Chat: fills ALL remaining space between voice panel and composer */
+  .chat {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* 8. Msgs: THE ONLY SCROLLABLE AREA.
+        padding-bottom = actual composer height (set by useLayoutEffect via CSS var)
+        + 8px extra clearance so the last message is never hidden behind the composer.
+        Default 72px covers most devices before JS measurement fires. */
+  .msgs {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px 17px 12px;
+  }
+
+  /* 9. Composer: FIXED to bottom — always above keyboard, never scrolls
+        width: 100% + no border-radius means it spans the full width flush
+        env(safe-area-inset-bottom) handles iPhone home bar */
+  .composer {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    z-index: 200 !important;
+    border-radius: 0 !important;
+    border-top: 1.5px solid rgba(0,0,0,.1);
+    box-shadow: 0 -3px 16px rgba(0,0,0,.12);
+    padding: 10px 17px !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    background: #fff !important;
+    box-sizing: border-box;
+  }
+
+  /* 10. Dock: sits above composer — need bottom padding on msgs to clear it */
+  .dock { padding: 10px 14px; gap: 8px; }
+  .dbtn { padding: 6px 12px; font-size: 12px; }
+
+  /* 11. Overlay modals */
+  .overlay { padding: 22px 16px; border-radius: 0; }
+  .overlay h3 { font-size: 17px; }
+  .overlay p { font-size: 13px; }
+  .ov-actions { gap: 8px; }
+  .obtn { padding: 9px 14px; font-size: 13px; }
+  .timeopts .mm { padding: 8px 12px; font-size: 13px; }
 }
