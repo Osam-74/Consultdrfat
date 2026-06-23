@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   watchSession, watchMessages, ensureSession, startSession, completeSession, clearInSession,
@@ -482,6 +482,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Uses refs to ensure each warning fires exactly once per session.
   const beepedAt5MinRef = useRef(false);
   const beepedAt1MinRef = useRef(false);
+  // Refs for fixed-layout height measurement on mobile
+  const composerElRef  = useRef<HTMLDivElement>(null);
+  const roomTopElRef   = useRef<HTMLDivElement>(null);
   // Track the last endAt we've seen — when it changes (extension), reset all
   // one-shot refs so warnings + auto-end fire again on the new expiry.
   const lastEndAtRef = useRef<number | null>(null);
@@ -938,7 +941,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   return (
     <div className="room-bg">
       <audio ref={remoteAudioRef} autoPlay playsInline hidden />
-      <div className="room-top">
+      <div className="room-top" ref={roomTopElRef}>
         {/* Logo → home */}
         <Link href="/" style={{display:"flex",alignItems:"center",gap:8,textDecoration:"none"}}>
           <div className="brand-icon" style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,var(--teal),var(--sky))",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14}}>🩺</div>
@@ -1475,7 +1478,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </div>
             )}
             {/* ── Composer — pinned to bottom, textarea for word wrapping ── */}
-            <div className="composer">
+            <div className="composer" ref={composerElRef}>
               <textarea
                 value={draft}
                 onChange={(e) => sessionLive && setDraft(e.target.value)}
