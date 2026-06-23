@@ -2,6 +2,7 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install --legacy-peer-deps",
   "framework": "nextjs",
+  "ignoreCommand": "exit 0",
   "headers": [
     {
       "source": "/(.*)",
