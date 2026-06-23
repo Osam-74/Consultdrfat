@@ -302,7 +302,7 @@ export default function BookPage() {
         const res = await fetch(`${API_BASE}/check-slot`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slotStartMs: selSlot.start.getTime() }),
+          body: JSON.stringify({ slotStartMs: selSlot.start.getTime(), clientId: user.uid }),
         });
         if (res.ok) {
           const data = await res.json() as { available?: boolean };

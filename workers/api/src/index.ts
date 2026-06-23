@@ -359,7 +359,7 @@ export default {
     // ── Check if a slot is still available (pre-booking guard) ─────────────────
     if (url.pathname === "/check-slot" && req.method === "POST") {
       try {
-        const body = await req.json() as { slotStartMs?: number };
+        const body = await req.json() as { slotStartMs?: number; clientId?: string };
         if (!body.slotStartMs) return json({ available: false, error: "slotStartMs required" }, env, 400);
         const token = await getFirebaseAccessToken(env.FIREBASE_SA_JSON);
         // Query for any non-cancelled booking at this exact slot time
@@ -367,11 +367,20 @@ export default {
           env.FIREBASE_PROJECT_ID, token, "bookings",
           [{ field: "slotStart", op: "EQUAL", value: body.slotStartMs }]
         ).catch(() => [] as Array<Record<string, unknown>>);
+        // A slot is blocked only if ANOTHER user has a non-cancelled booking on it.
+        // The current user's own "held" booking (pre-payment) should NOT block them.
         const blocked = conflictDocs.some(d => {
           const status = (d.status as { stringValue?: string })?.stringValue;
-          return status && !["cancelled"].includes(status);
+          const clientId = (d.clientId as { stringValue?: string })?.stringValue;
+          if (!status || status === "cancelled") return false;
+          // If this is the same user's own booking, only block if already "paid"
+          // (they shouldn't pay twice for the same slot)
+          if (body.clientId && clientId === body.clientId) {
+            return status === "paid";
+          }
+          return true; // another user's held/paid/reserved booking = blocked
         });
-        // Also check slotReservations
+        // Also check slotReservations — but exclude the current user's own reservation
         let reserved = false;
         try {
           const resUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/slotReservations`;
@@ -382,6 +391,9 @@ export default {
             for (const rdoc of resData.documents ?? []) {
               const f = rdoc.fields;
               if (!f) continue;
+              const resClientId = (f.clientId as { stringValue?: string })?.stringValue;
+              // Skip this user's own reservation — they're the one who made it
+              if (body.clientId && resClientId === body.clientId) continue;
               const ms = (f.slotStartMs as { integerValue?: string })?.integerValue;
               const expMs = (f.expiresAtMs as { integerValue?: string })?.integerValue;
               const exp = (f.expiresAt as { timestampValue?: string })?.timestampValue;
