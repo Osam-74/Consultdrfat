@@ -85,5 +85,16 @@ service cloud.firestore {
 
     // ── Mail queue ───────────────────────────────────────────────────────────
     match /mail/{id} { allow create: if signedIn(); allow read, update, delete: if false; }
+
+    // ── Slot reservations (5-min soft holds written by Cloudflare Worker) ───
+    // The worker uses a service account (admin SDK) which bypasses rules.
+    // Client-side reads are needed for /taken-slots UX fallback.
+    // No direct client writes — all writes go through /reserve worker endpoint.
+    match /slotReservations/{id} {
+      // Allow public reads so the booking page can check taken slots client-side
+      allow read: if true;
+      // No direct client writes — only the worker (service account) writes here
+      allow write: if false;
+    }
   }
 }

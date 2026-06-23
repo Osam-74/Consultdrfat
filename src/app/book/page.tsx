@@ -94,6 +94,19 @@ export default function BookPage() {
           }
         }
       } catch { /* non-fatal — falls back to just user's own bookings */ }
+      // Also read slotReservations directly from Firestore as client-side fallback
+      // (catches active soft-holds from the booking UI)
+      try {
+        const { getDocs, collection, where, query: fsQuery } = await import("firebase/firestore");
+        const { db } = await import("@/lib/firebase");
+        const resSnap = await getDocs(
+          fsQuery(collection(db, "slotReservations"), where("expiresAt", ">", new Date().toISOString()))
+        );
+        resSnap.forEach((rdoc) => {
+          const d = rdoc.data() as { slotStartMs?: number; expiresAt?: string };
+          if (d.slotStartMs) taken.add(d.slotStartMs);
+        });
+      } catch { /* non-fatal */ }
 
       setSlots(generateSlots(s, t, e, taken));
       setTakenMs(taken);
