@@ -15,10 +15,15 @@ which is the correct modern setup.
 
 | Setting | Value |
 |---|---|
-| **Framework preset** | Next.js |
-| **Build command** | `npm run deploy` |
-| **Output directory** | `.open-next` |
-| **Node.js version** | 20 |
+| **Framework preset** | None (custom) |
+| **Root directory** | *(leave blank — repo root)* |
+| **Build command** | `npm run build` |
+| **Output directory** | `.next` |
+| **Node.js version** | 22 |
+
+> ⚠️ **Common mistake:** If Cloudflare is running `npx esbuild src/index.ts ...` it means
+> the **Root directory** is accidentally set to `workers/api/`. Clear it so it points at
+> the repo root, and set Build command to `npm run build`.
 
 Go to: https://dash.cloudflare.com → Workers & Pages → your project → Settings → Builds & deployments
 
