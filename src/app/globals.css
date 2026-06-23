@@ -859,8 +859,11 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   display: flex; gap: 8px; padding: 12px 14px;
   border-top: 1px solid var(--line); background: #fff;
   border-radius: 0 0 16px 16px;
-  flex-shrink: 0; /* never shrink — always fully visible at bottom */
+  flex-shrink: 0; /* never shrink — always at bottom of chat */
   align-items: flex-end;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 .composer input,
 .composer textarea {
@@ -1072,9 +1075,11 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .admin-summary-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; margin: 14px 0 !important; }
 
   /* Session room */
-  .room-top { padding: 10px 14px; }
+  .room-top { padding: 10px 14px; flex-shrink: 0; }
   .room-top .tag { font-size: 10px; padding: 3px 10px; }
-  .stage { padding: 16px 10px 88px; }  /* extra bottom pad for mobile FAB */
+  /* On mobile the stage fills the remaining height between header and bottom;
+     padding-bottom gives clearance for the floating FAB button */
+  .stage { padding: 12px 10px 80px; overflow-y: auto; flex: 1; min-height: 0; }
   .stage h2 { font-size: 18px; }
   .pane-h { padding: 10px 12px; gap: 6px; overflow: visible; flex-wrap: nowrap; }
   .pane-h .nm { font-size: 13px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1085,20 +1090,21 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .orb { font-size: 24px; width: 56px; height: 56px; }
   .controls { gap: 8px; flex-wrap: wrap; justify-content: center; }
   .ctl { padding: 8px 12px; font-size: 12px; }
-  .chat { height: 200px; min-height: 160px; padding-bottom: 0; flex: 1; }
+  /* chat fills remaining pane space; msgs scrolls inside it */
+  .chat { flex: 1; min-height: 0; padding-bottom: 0; }
+  /* composer: sticky bottom so it rides up WITH the keyboard, never flies off-screen */
   .composer {
-    position: fixed;
+    position: sticky;
     bottom: 0;
     left: 0;
     right: 0;
-    z-index: 50;
-    border-radius: 12px 12px 0 0;
+    z-index: 10;
+    border-radius: 0 0 16px 16px;
     box-shadow: 0 -2px 12px rgba(0,0,0,.08);
     padding: 10px 12px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
-  /* Add padding to chat msgs so last message isn't hidden behind fixed composer */
-  .msgs { padding-bottom: 60px; }
+  .msgs { padding-bottom: 8px; }
   .dock { padding: 10px 14px; gap: 8px; }
   .dbtn { padding: 6px 12px; font-size: 12px; }
   .overlay { padding: 22px 16px; border-radius: 0; }
@@ -1203,11 +1209,12 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
    SESSION ROOM — Full CSS
 ═══════════════════════════════════════════════════════ */
 .room-bg {
-  min-height: 100vh;
+  height: 100dvh;           /* collapses with keyboard on mobile */
+  min-height: 100dvh;
   background: linear-gradient(150deg, var(--navy) 0%, #0a2f4a 60%, #0b3d3a 100%);
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  overflow: hidden;         /* no page-level scroll — only .msgs scrolls */
 }
 .room-top {
   display: flex;
@@ -1215,6 +1222,10 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   justify-content: space-between;
   padding: 14px 20px;
   border-bottom: 1px solid rgba(255,255,255,.1);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
 }
 .room-top .brand { display: flex; align-items: center; gap: 8px; }
 .room-top .tag {
@@ -1229,6 +1240,10 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   margin: 0 auto;
   width: 100%;
   padding: 28px 20px 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .stage h2 {
   color: #fff;
@@ -1246,6 +1261,10 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   border-radius: 20px;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .pane-h {
   display: flex;
@@ -1355,9 +1374,8 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 .chat {
   display: flex;
   flex-direction: column;
-  height: 340px;
-  /* The composer (input row) is always pinned to the bottom.
-     The msgs area scrolls independently above it. */
+  flex: 1;
+  min-height: 0;          /* let flex shrink correctly */
   position: relative;
 }
 .msgs {

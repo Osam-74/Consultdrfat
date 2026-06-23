@@ -420,20 +420,31 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     if (file.size > MAX) { alert("File must be under 20 MB."); return; }
     setPractUploading(true);
     try {
-      // Use the same uploadSessionFile function — API_BASE points to the worker
-      // The worker accepts uploads from both client and practitioner equally
-      const uploaded = await uploadSessionFile(bookingId, file, API_BASE);
+      const form = new FormData();
+      form.append("file", file);
+      form.append("bookingId", bookingId);
+      // Use explicit cors mode and no custom headers (lets browser handle multipart boundary)
+      const endpoint = `${API_BASE}/upload`;
+      const res = await fetch(endpoint, { method: "POST", mode: "cors", body: form });
+      if (!res.ok) {
+        let errMsg = `Upload failed (${res.status})`;
+        try { const j = await res.json() as { error?: string }; if (j.error) errMsg = j.error; } catch {}
+        throw new Error(errMsg);
+      }
+      const data = await res.json() as { ok: boolean; url: string };
+      const uploaded = { url: data.url, type: file.type, name: file.name, size: file.size };
       const isImage = file.type.startsWith("image/");
       const label = isImage ? `🖼️ ${file.name}` : `📎 ${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
       await sendMessage(bookingId, role, label, uploaded);
     } catch (err) {
       console.error("Practitioner file share error:", err);
-      // If it's a CORS/network error, give a more helpful message
-      const msg = err instanceof Error ? err.message : "Upload failed";
-      const hint = msg.includes("fetch") || msg.toLowerCase().includes("failed to fetch")
-        ? "Network error — check your connection or try again."
-        : msg;
-      alert(`Could not share file: ${hint}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      // Give a clear, actionable message
+      if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
+        alert("File upload failed — the file storage service may be unavailable. Please check your internet connection and try again. If this persists, contact support.");
+      } else {
+        alert(`Could not share file: ${msg}`);
+      }
     } finally {
       setPractUploading(false);
       if (practFileRef.current) practFileRef.current.value = "";
@@ -471,6 +482,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Uses refs to ensure each warning fires exactly once per session.
   const beepedAt5MinRef = useRef(false);
   const beepedAt1MinRef = useRef(false);
+  // Track the last endAt we've seen — when it changes (extension), reset all
+  // one-shot refs so warnings + auto-end fire again on the new expiry.
+  const lastEndAtRef = useRef<number | null>(null);
   const autoEndedRef = useRef(false);
   const playTimeWarningBeep = () => {
     try {
@@ -583,6 +597,21 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   useEffect(() => {
     if (!session || session.status !== "live") return;
     const remainingMs = session.endAt ? session.endAt.toMillis() - now : 0;
+
+    // ── Reset one-shot refs when session is extended ──
+    // Must run FIRST — before beep/auto-end checks — so the new deadline
+    // gets fresh one-shot guards on the same tick endAt changes.
+    const currentEndAt = session?.endAt?.toMillis() ?? null;
+    if (currentEndAt !== null && currentEndAt !== lastEndAtRef.current) {
+      if (lastEndAtRef.current !== null) {
+        // endAt actually changed (not first render) — reset one-shot flags
+        beepedAt5MinRef.current = false;
+        beepedAt1MinRef.current = false;
+        autoEndedRef.current = false;
+      }
+      lastEndAtRef.current = currentEndAt;
+    }
+
     // 5-minute warning
     if (remainingMs <= 5 * 60_000 && remainingMs > 4 * 60_000 && !beepedAt5MinRef.current) {
       beepedAt5MinRef.current = true;
@@ -593,6 +622,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       beepedAt1MinRef.current = true;
       playTimeWarningBeep();
     }
+
     // AUTO-END: When time runs out and session is still live,
     // automatically end the call and block the session for the client.
     // The practitioner can still offer an extension.
@@ -818,7 +848,11 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     } catch (err) {
       console.error("File share error:", err);
       const msg = err instanceof Error ? err.message : "Upload failed";
-      alert(`Could not share file: ${msg}`);
+      if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
+        alert("File upload failed — the storage service may be unavailable. Check your internet connection and try again.");
+      } else {
+        alert(`Could not share file: ${msg}`);
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1003,8 +1037,24 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </div>
             {/* Call + Video icons — flat SVG, right side */}
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              {/* Voice call button */}
-              {sessionLive && (
+              {/* Voice call button — greyed out and disabled when session has ended */}
+              {complete ? (
+                /* Session ended — show greyed-out disabled phone icon */
+                <button
+                  disabled
+                  title="Session has ended"
+                  style={{
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    width:36,height:36,borderRadius:10,border:"1.5px solid rgba(255,255,255,.12)",
+                    background:"rgba(255,255,255,.05)",color:"rgba(255,255,255,.2)",
+                    cursor:"not-allowed",transition:"all .15s",padding:0,opacity:0.45,
+                  }}
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.47 2 2 0 0 1 3.59 1.3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6.29 6.29l1.02-.88a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                  </svg>
+                </button>
+              ) : sessionLive && (
                 voiceLive ? (
                   /* Active call — red end button */
                   <button
@@ -1017,7 +1067,6 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       cursor:"pointer",transition:"all .15s",padding:0,
                     }}
                   >
-                    {/* Phone-slash: filled phone receiver + diagonal slash — universally understood "end call" */}
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M1.5 4.5C3 3 5.5 3 7 4.5l2 2c1.5 1.5 1.5 3.5 0 5l-.5.5c1 2 2.5 3.5 4.5 4.5l.5-.5c1.5-1.5 3.5-1.5 5 0l2 2c1.5 1.5 1.5 4 0 5.5C19 25 2 19 1.5 4.5z" opacity="0.9"/>
                       <line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>

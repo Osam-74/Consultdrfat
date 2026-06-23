@@ -425,29 +425,37 @@ export default function AdminPage() {
   const totalEarnings = allPaid.reduce((a, b) => a + b.amountNGN, 0);
 
   // ── Consultation hours: total duration of all completed sessions ──
-  // Uses completedAt timestamp minus slotStart for actual duration.
-  // Falls back to sessionLengthMin if completedAt missing.
-  // Uses the booking doc's own cached `sessionStatus` field so archived
-  // bookings are counted correctly (they are excluded from sessionStatuses map).
+  // Counts ALL paid bookings (archived or not) whose sessionStatus === "complete".
+  // Uses completedAt - slotStart for actual elapsed time.
+  // Falls back to the session slot duration when completedAt is missing.
   const consultationHours = (() => {
     const completed = bookings.filter(b => {
       if (b.status !== "paid") return false;
-      // Use cached sessionStatus on booking doc directly — works for both
-      // archived and non-archived bookings without extra Firestore reads.
+      // sessionStatus on the booking doc is the source of truth — set by
+      // completeSession() and preserved through archiving.
       const cachedStatus = (b as unknown as Record<string, unknown>).sessionStatus as string | undefined;
+      // Also accept live sessionStatuses map for non-archived bookings
       const liveStatus = sessionStatuses[b.id];
       return cachedStatus === "complete" || liveStatus === "complete";
     });
-    let totalSeconds = 0;
+    let totalMinutes = 0;
     completed.forEach(b => {
+      const raw = b as unknown as Record<string, unknown>;
       const startMs = b.slotStart.toMillis();
-      const extMin = (b as unknown as Record<string, unknown>).extensionMinutes as number | undefined;
-      const baseMin = extMin ? settings.sessionLengthMin + extMin : settings.sessionLengthMin;
-      const endMs = b.completedAt ? b.completedAt.toMillis() : startMs + (baseMin * 60_000);
-      totalSeconds += Math.max(0, Math.round((endMs - startMs) / 1000));
+      if (b.completedAt) {
+        // Best path: use actual elapsed time
+        const elapsedMin = (b.completedAt.toMillis() - startMs) / 60_000;
+        // Clamp to reasonable range: at least 1 min, at most 3× slot length
+        const maxMin = settings.sessionLengthMin * 3 + 60;
+        totalMinutes += Math.max(1, Math.min(elapsedMin, maxMin));
+      } else {
+        // Fallback: use booked slot length + any extensions
+        const extMin = (raw.extensionMinutes as number | undefined) ?? 0;
+        totalMinutes += settings.sessionLengthMin + extMin;
+      }
     });
-    // Round to 1 decimal (e.g. 0.5, 1.2, 3.0)
-    return Math.round((totalSeconds / 3600) * 10) / 10;
+    // Return in hours, rounded to 1 decimal
+    return Math.round((totalMinutes / 60) * 10) / 10;
   })();
 
   // ── Active patients: unique clientIds who have made bookings ──
