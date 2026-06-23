@@ -485,6 +485,26 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   // Refs for fixed-layout height measurement on mobile
   const composerElRef  = useRef<HTMLDivElement>(null);
   const roomTopElRef   = useRef<HTMLDivElement>(null);
+
+  // ── Measure header + composer heights → set CSS vars used by mobile fixed layout ──
+  // This ensures .msgs padding-bottom always matches the actual composer height
+  // so the last message is never hidden behind the composer/text-box area.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const measure = () => {
+      if (roomTopElRef.current) {
+        root.style.setProperty("--room-top-h", roomTopElRef.current.offsetHeight + "px");
+      }
+      if (composerElRef.current) {
+        root.style.setProperty("--composer-h", composerElRef.current.offsetHeight + "px");
+      }
+    };
+    measure();
+    const obs = new ResizeObserver(measure);
+    if (roomTopElRef.current)  obs.observe(roomTopElRef.current);
+    if (composerElRef.current) obs.observe(composerElRef.current);
+    return () => obs.disconnect();
+  }, []);
   // Track the last endAt we've seen — when it changes (extension), reset all
   // one-shot refs so warnings + auto-end fire again on the new expiry.
   const lastEndAtRef = useRef<number | null>(null);
