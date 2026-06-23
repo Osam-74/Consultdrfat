@@ -53,12 +53,14 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   const [callCaller, setCallCaller] = useState<Role | null>(null);
   const [callConnecting, setCallConnecting] = useState(false);
   const [pricePerMin, setPricePerMin] = useState(DEFAULT_SETTINGS.priceNGN / DEFAULT_SETTINGS.sessionLengthMin);
+  const [practitionerName, setPractitionerName] = useState(DEFAULT_SETTINGS.practitionerName);
 
   // Discount UI state (practitioner only)
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountPct, setDiscountPct] = useState<typeof DISCOUNT_OPTIONS[number]>(25);
   const [discountSending, setDiscountSending] = useState(false);
   const [discountSent, setDiscountSent] = useState(false);
+  const [extRequested, setExtRequested] = useState(false); // client has pressed "request more time"
   const [discountCode, setDiscountCode] = useState<string | null>(null);
 
   // Client info stored in session metadata (sent by system message on session start)
@@ -119,7 +121,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   // ── Firestore subscriptions ──
   useEffect(() => {
-    getSettings().then((s) => setPricePerMin(s.priceNGN / s.sessionLengthMin)).catch(() => {});
+    getSettings().then((s) => {
+      setPricePerMin(s.priceNGN / s.sessionLengthMin);
+      if (s.practitionerName) setPractitionerName(s.practitionerName);
+    }).catch(() => {});
     // ensureSession is called once per booking load.
     // We use getSettings() to get the real duration; fall back to DEFAULT only if fetch fails.
     getSettings()
@@ -467,13 +472,40 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.frequency.value = 1000; // 1kHz tone
+        osc.frequency.value = 1000;
         const start = ctx.currentTime + i * 0.25;
         gain.gain.setValueAtTime(0.15, start);
         gain.gain.exponentialRampToValueAtTime(0.001, start + 0.15);
         osc.start(start);
         osc.stop(start + 0.15);
       }
+    } catch { /* non-fatal */ }
+  };
+
+  // Play 3 descending "call drop" tones when session ends.
+  // Mimics the classic phone drop sound: three falling notes.
+  const playCallDropSound = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      // Three descending tones: 880Hz → 660Hz → 440Hz, each 0.22s apart
+      const freqs = [880, 660, 440];
+      freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const t = ctx.currentTime + i * 0.22;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.22, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.20);
+        osc.start(t);
+        osc.stop(t + 0.22);
+      });
+      // Close context after tones finish
+      setTimeout(() => { try { ctx.close(); } catch {} }, 1200);
     } catch { /* non-fatal */ }
   };
 
@@ -670,6 +702,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
   useEffect(() => {
     if (!session) return;
     if (session.status !== "complete") return;
+
+    // ── Play call-drop sound to notify both parties session ended ──
+    playCallDropSound();
 
     // ── Kill ALL audio/voice immediately ──
     // 1. Cancel animation frame (mic meter)
@@ -869,7 +904,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           {/* Presence indicator */}
           <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:otherOnline?"#4ade80":"rgba(255,255,255,.4)"}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"rgba(255,255,255,.25)",display:"inline-block"}} />
-            {isPract ? "Client" : "Dr. Fat"} {otherOnline ? "online" : "offline"}
+            {isPract ? (clientName || "Client") : practitionerName} {otherOnline ? "online" : "offline"}
           </div>
         </div>
       </div>
@@ -923,7 +958,12 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             {/* Avatar + online dot — no label text */}
             <div className="who">
               <div style={{position:"relative",flexShrink:0}}>
-                <div className={"avatar " + (isPract ? "cl" : "dr")}>{isPract ? "CL" : "DR"}</div>
+                <div className={"avatar " + (isPract ? "cl" : "dr")}>
+                  {isPract
+                    ? (clientName ? clientName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "CL")
+                    : practitionerName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()
+                  }
+                </div>
                 <span style={{
                   position:"absolute",bottom:0,right:0,
                   width:9,height:9,borderRadius:"50%",
@@ -933,8 +973,8 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   transition:"all .3s",
                 }} />
               </div>
-              {/* Mic visualizer when transmitting */}
-              {micOn && localStreamRef.current && (
+              {/* Mic visualizer — only shown during an active voice call */}
+              {voiceLive && micOn && localStreamRef.current && (
                 <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:12,marginLeft:6}}>
                   {[0.4,0.7,1,0.6,0.85].map((h,i) => (
                     <div key={i} style={{
@@ -962,8 +1002,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       cursor:"pointer",transition:"all .15s",padding:0,
                     }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
+                    {/* Phone-slash: filled phone receiver + diagonal slash — universally understood "end call" */}
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M1.5 4.5C3 3 5.5 3 7 4.5l2 2c1.5 1.5 1.5 3.5 0 5l-.5.5c1 2 2.5 3.5 4.5 4.5l.5-.5c1.5-1.5 3.5-1.5 5 0l2 2c1.5 1.5 1.5 4 0 5.5C19 25 2 19 1.5 4.5z" opacity="0.9"/>
+                      <line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
                     </svg>
                   </button>
                 ) : callStatus === "ringing" && callCaller === role ? (
@@ -978,8 +1020,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                       cursor:"pointer",transition:"all .15s",padding:0,
                     }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="23" y1="1" x2="1" y2="23"/><path d="M16.5 4.5a5 5 0 0 1 0 7.07L12 16a5 5 0 0 1-7.07 0 5 5 0 0 1 0-7.07L9.36 5.5"/>
+                    {/* Phone-slash: filled phone receiver + diagonal slash — universally understood "end call" */}
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M1.5 4.5C3 3 5.5 3 7 4.5l2 2c1.5 1.5 1.5 3.5 0 5l-.5.5c1 2 2.5 3.5 4.5 4.5l.5-.5c1.5-1.5 3.5-1.5 5 0l2 2c1.5 1.5 1.5 4 0 5.5C19 25 2 19 1.5 4.5z" opacity="0.9"/>
+                      <line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
                     </svg>
                   </button>
                 ) : (
@@ -1026,13 +1070,61 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           <div className="voice">
             <div className={"timer num " + timerCls}>{fmt(remaining)}</div>
             <div className="tl tl-sm">{complete ? "Session time complete" : "Session time remaining"}</div>
-            <div className="orb" style={{ transform: `scale(${scale})` }}>
-              {voiceLive ? (micOn ? "🎙️" : "🔇") : callStatus === "ringing" ? "📞" : "🎙️"}
-            </div>
-            {!sessionLive && (
-              <div className="session-not-started-banner">
-                {isPract ? "⏸ Press Start session below to begin" : "⏳ Waiting for practitioner to start the session…"}
+            {/* Orb — only visible during active voice call */}
+            {(voiceLive || callStatus === "ringing") && (
+              <div className="orb" style={{ transform: `scale(${scale})` }}>
+                {voiceLive ? (
+                  micOn ? (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                      <line x1="12" y1="19" x2="12" y2="23"/>
+                      <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.5">
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                      <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                      <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/>
+                      <line x1="12" y1="19" x2="12" y2="23"/>
+                      <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                  )
+                ) : (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.47 2 2 0 0 1 3.59 1.3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6.29 6.29l1.02-.88a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                  </svg>
+                )}
               </div>
+            )}
+            {!sessionLive && !isPract && (
+              <div className="session-not-started-banner">
+                ⏳ Waiting for practitioner to start the session…
+              </div>
+            )}
+            {!sessionLive && isPract && (
+              <button
+                className="session-start-banner-btn"
+                onClick={() => startSession(bookingId, session?.durationMin ?? DEFAULT_SETTINGS.sessionLengthMin)}
+                style={{
+                  marginTop: 10,
+                  padding: "10px 24px",
+                  borderRadius: 12,
+                  border: "2px solid var(--teal)",
+                  background: "rgba(14,138,122,.18)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  transition: "all .2s",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                Start Session
+              </button>
             )}
             {/* ── Client "Notify" button — ping the practitioner ── */}
             {!isPract && !sessionLive && (
@@ -1076,7 +1168,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                 animation: "pingBlink 1.5s infinite",
               }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>
-                  📞 {callCaller === "practitioner" ? "Dr. Fat" : "Client"} is calling you…
+                  📞 {callCaller === "practitioner" ? practitionerName : (clientName || "Client")} is calling you…
                 </div>
                 <div style={{ display: "flex", gap: 12 }}>
                   <button
@@ -1121,7 +1213,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               {voiceLive ? "Voice connected" :
                callStatus === "ringing" ? (callCaller === role ? "Calling…" : "Incoming call") :
                callConnecting ? "Connecting…" :
-               sessionLive ? "Click call to start voice" : "Voice locked"}
+               sessionLive ? "" : ""}
             </div>
 
             {/* Call controls now in pane-h header */}
@@ -1322,12 +1414,14 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                     send();
                   }
                 }}
-                placeholder={sessionLive
-                  ? (isPract ? "Message your client…" : "Message…")
-                  : (isPract ? "Start the session to enable chat…" : "Waiting for practitioner to start…")}
-                disabled={!sessionLive}
+                placeholder={complete
+                  ? "Session has ended."
+                  : sessionLive
+                    ? (isPract ? "Message your client…" : "Message…")
+                    : (isPract ? "Start the session to enable chat…" : "Waiting for practitioner to start…")}
+                disabled={!sessionLive || complete}
                 style={{
-                  ...(!sessionLive ? {opacity:.45, cursor:"not-allowed"} : {}),
+                  ...((!sessionLive || complete) ? {opacity:.45, cursor:"not-allowed"} : {}),
                   resize: "none",
                   minHeight: 40,
                   maxHeight: 100,
@@ -1363,7 +1457,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   />
                 </>
               )}
-              <button onClick={send} disabled={!sessionLive} style={!sessionLive ? {opacity:.45} : {}}>↑</button>
+              <button onClick={send} disabled={!sessionLive || complete} style={(!sessionLive || complete) ? {opacity:.45} : {}}>↑</button>
             </div>
           </div>
 
@@ -1378,6 +1472,9 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           <div
             ref={fabRef}
             className={"pract-fab" + (fabOpen ? " open" : "")}
+            data-side={fabPos
+              ? (fabPos.x < window.innerWidth / 2 ? "left" : "right")
+              : "right"}
             style={fabPos ? { bottom: "auto", right: "auto", left: fabPos.x, top: fabPos.y } : {}}
             onPointerDown={(e) => {
               const el = fabRef.current;
@@ -1423,7 +1520,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </button>
             {fabOpen && (
               <div className="fab-menu" onClick={e => e.stopPropagation()}>
-                {session.status !== "live" && (
+                {(session.status as string) !== "live" && (session.status as string) !== "complete" && (
                   <button className="fab-action" onClick={() => { startSession(bookingId, session.durationMin); setFabOpen(false); }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
                     Start Session
@@ -1443,6 +1540,15 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                   Session Notes
                 </button>
+                {sessionLive && (
+                  <button
+                    className="fab-action"
+                    onClick={() => { setChosen(0); setFabOpen(false); }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>
+                    Extend Time
+                  </button>
+                )}
                 {sessionLive && (
                   <button
                     className="fab-action"
@@ -1473,7 +1579,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
           {/* Desktop dock — hidden on mobile */}
           <div className="dock">
             <span className="lbl">Controls</span>
-            {session.status !== "live" && (
+            {(session.status as string) !== "live" && (session.status as string) !== "complete" && (
               <button className="dbtn primary" onClick={() => startSession(bookingId, session.durationMin)}>
                 Start session
               </button>
@@ -1911,6 +2017,20 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
     // ════════════════════════════════════════════════════════════════
     // CLIENT OVERLAYS
     // ════════════════════════════════════════════════════════════════
+    // 0. Practitioner declined extension — show message before session completes
+    if (offer?.status === "declined") {
+      return (
+        <div className="overlay">
+          <div className="ov-icon">📅</div>
+          <h3>Extension not available</h3>
+          <p>{practitionerName} has another session and can&apos;t offer an extension right now. Please reschedule for continued care.</p>
+          <div className="ov-actions">
+            <button className="obtn amber" onClick={() => { window.location.href = "/book"; }}>Book another session</button>
+            <button className="obtn ghost" onClick={() => { window.location.href = "/"; }}>Return home</button>
+          </div>
+        </div>
+      );
+    }
     // 1. Client sees offer from practitioner (paid or free)
     if (offer?.status === "sent") {
       const isFree = offer.isFree || offer.priceNGN === 0;
@@ -1945,26 +2065,33 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       );
     }
     // 3. Timer ran out — client can request an extension
-    if (complete && !offer) {
+    if (complete && !offer && !extRequested && !clientRequested) {
       return (
         <div className="overlay">
           <div className="ov-icon">⏰</div>
           <h3>Session time has ended</h3>
           <p>Would you like to request more time with your practitioner?</p>
           <div className="ov-actions">
-            <button className="obtn amber" onClick={() => requestExtension(bookingId)}>Yes, request more time</button>
-            <button className="obtn ghost" onClick={() => { /* just leave it — session will end naturally */ }}>No, I&apos;m done</button>
+            <button className="obtn amber" onClick={() => {
+              setExtRequested(true);
+              requestExtension(bookingId).catch(() => setExtRequested(false));
+            }}>Yes, request more time</button>
+            <button className="obtn ghost" onClick={async () => {
+              // "No, I'm done" — complete session and return to homepage
+              try { await completeSession(bookingId); } catch {}
+              window.location.href = "/?session=complete";
+            }}>No, I&apos;m done</button>
           </div>
         </div>
       );
     }
-    // 4. Client already requested — waiting for practitioner to respond
-    if (clientRequested && !offer) {
+    // 4. Client pressed "request more time" but Firestore not yet updated — show immediate feedback
+    if ((extRequested || clientRequested) && !offer) {
       return (
         <div className="overlay">
           <div className="ov-icon">⏳</div>
-          <h3>Extension requested</h3>
-          <p>Waiting for your practitioner to respond to your request…</p>
+          <h3>More time requested</h3>
+          <p>Waiting for {practitionerName} to respond to your request…</p>
         </div>
       );
     }

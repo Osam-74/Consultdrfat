@@ -2172,6 +2172,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 .booking-row:last-child { border-bottom: none; }
 .booking-row.brow-live .booking-row-main { background: rgba(14,138,122,.04); }
 .booking-row.brow-past { opacity: .75; }
+.booking-row.brow-done-out { opacity: 0.5; filter: grayscale(0.3); pointer-events: all; }
 
 .booking-row-main {
   display: flex; align-items: center; gap: 14px;
@@ -2542,33 +2543,35 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   display: flex;
   gap: 20px;
   overflow-x: auto;
-  scroll-snap-type: x mandatory;
+  /* No snap — we control scroll manually for infinite loop */
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  /* Same inset as .wrap — creates uniform spacing matching other sections */
-  padding: 8px max(calc((100vw - 1140px) / 2 + 20px), 20px);
-  scroll-padding-left: max(calc((100vw - 1140px) / 2 + 20px), 20px);
+  /* Horizontal padding creates "peek" effect for adjacent cards */
+  padding: 12px 0 20px;
 }
 .testi-track::-webkit-scrollbar { display: none; }
 .testi-slide-card {
-  flex: 0 0 calc(min(460px, 80vw));
+  /* Desktop: show ~3 cards — active fills centre, adjacent half-show at edges */
+  flex: 0 0 clamp(260px, 32vw, 420px);
   background: #fff;
   border: 1.5px solid var(--line);
   border-radius: 20px;
   padding: 28px 28px 24px;
   box-shadow: var(--shadow-sm);
-  scroll-snap-align: start;
   cursor: pointer;
-  transition: box-shadow .25s, border-color .25s, transform .25s;
-  opacity: 0.72;
-  transform: scale(0.97);
+  transition: box-shadow .35s, border-color .35s, transform .35s, opacity .35s;
+  opacity: 0.55;
+  transform: scale(0.94);
 }
-.testi-slide-card.active,
-.testi-slide-card:hover {
+.testi-slide-card.active {
   opacity: 1;
   transform: scale(1);
-  border-color: rgba(14,138,122,.3);
-  box-shadow: 0 8px 32px rgba(14,138,122,.12);
+  border-color: rgba(14,138,122,.35);
+  box-shadow: 0 8px 36px rgba(14,138,122,.18);
+}
+.testi-slide-card:hover {
+  opacity: 0.85;
+  border-color: rgba(14,138,122,.2);
 }
 /* testi-controls & testi-arrow removed — dots only */
 .testi-dots-center {
@@ -2580,8 +2583,11 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   padding-bottom: 8px;
 }
 @media (max-width: 600px) {
-  .testi-slide-card { flex: 0 0 85vw; padding: 20px 18px 18px; }
+  .testi-slide-card { flex: 0 0 82vw; padding: 20px 18px 18px; }
   .testi-quote { font-size: 14px; }
+}
+@media (max-width: 900px) and (min-width: 601px) {
+  .testi-slide-card { flex: 0 0 clamp(260px, 52vw, 380px); }
 }
 .testi-stars {
   color: #f59e0b;
@@ -2762,14 +2768,15 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   -webkit-tap-highlight-color: transparent;
 }
 .pract-fab.open .fab-toggle {
-  transform: rotate(45deg);
+  transform: rotate(0deg); /* no rotation — open/close is handled by SVG toggle in TSX */
   background: #d94f4f;
   box-shadow: 0 6px 24px rgba(217,79,79,.45);
 }
 .fab-menu {
   position: absolute;
   bottom: 62px;
-  right: 0;
+  right: 0;          /* default: expands leftward (menu to the left of FAB) */
+  left: auto;
   background: #0f2035;
   border: 1px solid rgba(255,255,255,.10);
   border-radius: 18px;
@@ -2826,6 +2833,11 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 }
 .fab-sw.on { background: var(--teal); }
 .fab-sw.on::after { transform: translateX(14px); background: #fff; }
+/* FAB menu — flip to right when FAB is on the left side of screen */
+.pract-fab[data-side="left"] .fab-menu {
+  left: 0;
+  right: auto;
+}
 /* Info row in FAB (non-interactive) */
 .fab-info {
   display: flex; align-items: center; gap: 8px;

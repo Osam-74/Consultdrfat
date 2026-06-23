@@ -44,61 +44,147 @@ const TESTIMONIALS = [
   },
 ];
 
+/**
+ * TestimonialsSection — infinite auto-scroll carousel.
+ *
+ * Desktop: 3 cards visible, active card is prominently centred (scale + shadow),
+ *          flanked by half-visible previews of the adjacent cards.
+ * Mobile:  1 full card + peek of next card. Cards centred.
+ *
+ * Auto-advances every 5s. Clicking a dot or card navigates directly.
+ * The carousel loops infinitely using a clone buffer on each side.
+ */
 function TestimonialsSection() {
+  const n = TESTIMONIALS.length;
+  // Triple the array: [...clones] [real] [...clones] — gives seamless infinite loop
+  const ITEMS = [...TESTIMONIALS, ...TESTIMONIALS, ...TESTIMONIALS];
+  const OFFSET = n; // index offset where real items start
+
   const trackRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(0); // 0-indexed within real items
+  const animating = useRef(false);
 
-  const scrollTo = (i: number) => {
+  // Scroll the track to the given real index (within the triple array)
+  const goTo = (realIdx: number, behavior: ScrollBehavior = "smooth") => {
     const el = trackRef.current;
     if (!el) return;
-    const cardW = el.scrollWidth / TESTIMONIALS.length;
-    el.scrollTo({ left: cardW * i, behavior: "smooth" });
-    setActive(i);
+    const tripleIdx = OFFSET + realIdx;
+    const cardW = el.scrollWidth / ITEMS.length;
+    el.scrollTo({ left: cardW * tripleIdx - (el.clientWidth - cardW) / 2, behavior });
   };
 
-  const next = () => scrollTo((active + 1) % TESTIMONIALS.length);
+  // On mount: position to centre of real items, no animation
+  useEffect(() => {
+    goTo(active, "instant");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-advance
+  const advance = () => {
+    const next = (active + 1) % n;
+    setActive(next);
+    goTo(next);
+  };
 
   useEffect(() => {
-    timerRef.current = setInterval(next, 6000);
+    timerRef.current = setInterval(advance, 5000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  // After smooth scroll reaches a clone, silently jump to the real counterpart
+  const handleScroll = () => {
+    const el = trackRef.current;
+    if (!el || animating.current) return;
+    const cardW = el.scrollWidth / ITEMS.length;
+    const centreIdx = Math.round((el.scrollLeft + el.clientWidth / 2 - cardW / 2) / cardW);
+    // If we scrolled into the first clone buffer, jump to the real equivalent
+    if (centreIdx < OFFSET) {
+      const realIdx = centreIdx + n;
+      animating.current = true;
+      el.scrollTo({ left: cardW * realIdx - (el.clientWidth - cardW) / 2, behavior: "instant" });
+      setActive(realIdx - OFFSET);
+      setTimeout(() => { animating.current = false; }, 50);
+    }
+    // If we scrolled into the last clone buffer, jump back
+    else if (centreIdx >= OFFSET + n) {
+      const realIdx = centreIdx - n;
+      animating.current = true;
+      el.scrollTo({ left: cardW * realIdx - (el.clientWidth - cardW) / 2, behavior: "instant" });
+      setActive(realIdx - OFFSET);
+      setTimeout(() => { animating.current = false; }, 50);
+    } else {
+      setActive(centreIdx - OFFSET);
+    }
+  };
+
+  const handleDotClick = (i: number) => {
+    setActive(i);
+    goTo(i);
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    timerRef.current = setInterval(advance, 5000);
+  };
+
   return (
     <section className="section testi-section" style={{ background: "var(--paper)", overflow: "hidden" }}>
-      {/* Header — centred, same max-width as other sections */}
+      {/* Header — LEFT aligned, consistent with all other sections */}
       <div className="wrap">
-        <div className="section-head" style={{ textAlign: "center" }}>
-          <div className="section-label" style={{ margin: "0 auto 10px", display: "inline-block" }}>Voices From The Consultation Room</div>
-          <h2 style={{ textAlign: "center" }}>Patients who chose to consult differently.</h2>
+        <div className="section-head">
+          <div className="section-label">Voices From The Consultation Room</div>
+          <h2>Patients who chose to consult differently.</h2>
         </div>
       </div>
-      {/* Full-bleed scrollable track */}
+
+      {/* Infinite carousel track */}
       <div className="testi-outer">
-        <div className="testi-track" ref={trackRef}>
-          {TESTIMONIALS.map((t, i) => (
-            <div key={i} className={"testi-slide-card" + (i === active ? " active" : "")}
-              onClick={() => scrollTo(i)}
-            >
-              <div className="testi-stars">{"★".repeat(5)}</div>
-              <blockquote className="testi-quote">&ldquo;{t.quote}&rdquo;</blockquote>
-              <div className="testi-profile">
-                <div className="testi-avatar">{t.initial}</div>
-                <div>
-                  <div className="testi-name">{t.name}</div>
-                  <div className="testi-location">{t.location}</div>
+        <div
+          className="testi-track"
+          ref={trackRef}
+          onScroll={handleScroll}
+          style={{ scrollSnapType: "none" /* override — we control scroll manually */ }}
+        >
+          {ITEMS.map((t, i) => {
+            const realI = i - OFFSET;
+            // "active" when this slot corresponds to the current real index
+            const isActive = (realI % n + n) % n === active;
+            return (
+              <div
+                key={i}
+                className={"testi-slide-card" + (isActive ? " active" : "")}
+                onClick={() => { const r = (realI % n + n) % n; handleDotClick(r); }}
+                style={{
+                  // Active card: full opacity, scale 1. Adjacent: slightly faded + shrunk.
+                  opacity: isActive ? 1 : 0.55,
+                  transform: isActive ? "scale(1)" : "scale(0.94)",
+                  transition: "opacity .35s, transform .35s",
+                  cursor: "pointer",
+                }}
+              >
+                <div className="testi-stars">{"★".repeat(5)}</div>
+                <blockquote className="testi-quote">&ldquo;{t.quote}&rdquo;</blockquote>
+                <div className="testi-profile">
+                  <div className="testi-avatar">{t.initial}</div>
+                  <div>
+                    <div className="testi-name">{t.name}</div>
+                    <div className="testi-location">{t.location}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
-      {/* Dot indicators only — no arrow buttons */}
+
+      {/* Dot indicators */}
       <div className="testi-dots-center">
         {TESTIMONIALS.map((_, i) => (
-          <button key={i} className={"testi-dot" + (i === active ? " active" : "")}
-            onClick={() => scrollTo(i)} aria-label={`View testimonial ${i + 1}`} />
+          <button
+            key={i}
+            className={"testi-dot" + (i === active ? " active" : "")}
+            onClick={() => handleDotClick(i)}
+            aria-label={`View testimonial ${i + 1}`}
+          />
         ))}
       </div>
     </section>

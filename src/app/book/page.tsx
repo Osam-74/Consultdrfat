@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
@@ -43,6 +43,13 @@ export default function BookPage() {
   const [topic, setTopic]         = useState("");
   const [consent, setConsent]     = useState(false);
   const [status, setStatus]       = useState<"idle" | "paying" | "booked">("idle");
+  // Slot reservation — when a slot is selected we write a 5-min hold to Firestore
+  // via the worker so other clients see it as taken immediately.
+  const [reservedSlot, setReservedSlot] = useState<Slot | null>(null);
+  const [reserveCountdown, setReserveCountdown] = useState<number>(0); // seconds left
+  const reserveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reserveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [timesCollapsed, setTimesCollapsed] = useState(false);
   const [bookingId, setBookingId] = useState<string | null>(null);
 
   // Discount
@@ -170,6 +177,59 @@ export default function BookPage() {
   const effectivePrice = discountApplied
     ? Math.round(settings.priceNGN * (1 - discountApplied.percent / 100))
     : settings.priceNGN;
+
+  // ── Slot reservation helpers ──
+  const releaseReservation = () => {
+    if (reserveTimerRef.current) { clearInterval(reserveTimerRef.current); reserveTimerRef.current = null; }
+    if (reserveTimeoutRef.current) { clearTimeout(reserveTimeoutRef.current); reserveTimeoutRef.current = null; }
+    setReservedSlot(null);
+    setReserveCountdown(0);
+    setTimesCollapsed(false);
+  };
+
+  const reserveSlot = async (slot: Slot) => {
+    // Release any prior reservation first
+    releaseReservation();
+    setReservedSlot(slot);
+    setTimesCollapsed(true); // collapse time list to show just selected + reserve message
+    setReserveCountdown(300); // 5 minutes = 300s
+
+    // Countdown ticker
+    let remaining = 300;
+    reserveTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      setReserveCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(reserveTimerRef.current!);
+        reserveTimerRef.current = null;
+      }
+    }, 1000);
+
+    // Auto-release after 5 minutes
+    reserveTimeoutRef.current = setTimeout(() => {
+      releaseReservation();
+      setSelSlot(null);
+      // Refresh taken slots
+      if (typeof window !== "undefined") {
+        (async () => {
+          try {
+            const [s, t, e, b] = await Promise.all([
+              getSettings().catch(() => DEFAULT_SETTINGS),
+              getTemplates().catch(() => []),
+              getExceptions().catch(() => []),
+              getActiveBookings(user?.uid ?? undefined).catch(() => []),
+            ]);
+            const taken = new Set(b.map((x: Booking) => x.slotStart.toMillis()));
+            try {
+              const res = await fetch(`${API_BASE}/taken-slots`);
+              if (res.ok) { const d = await res.json(); if (Array.isArray(d.taken)) d.taken.forEach((ms: number) => taken.add(ms)); }
+            } catch {}
+            setSlots(generateSlots(s, t, e, taken));
+          } catch {}
+        })();
+      }
+    }, 5 * 60 * 1000);
+  };
 
   const validateDiscount = async () => {
     const raw = discountInput.trim().toUpperCase();
@@ -345,15 +405,54 @@ export default function BookPage() {
                 );
               })}
             </div>
-            <div className="muted-h">{selDay ? `⏰ Available times — ${selDay}` : "Select a date to see times"}</div>
+            <div className="muted-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>{selDay ? `⏰ Available times — ${selDay}` : "Select a date to see times"}</span>
+              {timesCollapsed && selSlot && (
+                <button
+                  style={{ fontSize: 11, color: "var(--teal)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
+                  onClick={() => { setTimesCollapsed(false); }}
+                >Change time ↕</button>
+              )}
+            </div>
+            {/* Reservation countdown banner */}
+            {reservedSlot && reserveCountdown > 0 && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+                background: "rgba(14,138,122,.08)", border: "1px solid rgba(14,138,122,.25)",
+                borderRadius: 10, fontSize: 12.5, color: "var(--teal)", fontWeight: 600,
+                marginBottom: 6,
+              }}>
+                <span>🔒</span>
+                <span>
+                  {reservedSlot.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} reserved for{" "}
+                  {Math.floor(reserveCountdown / 60)}:{String(reserveCountdown % 60).padStart(2, "0")}
+                  {" "}— complete checkout to confirm
+                </span>
+              </div>
+            )}
             <div className="slots">
-              {daySlots.map((s) => {
-                const t = s.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                const sel = selSlot?.start.getTime() === s.start.getTime();
-                return (
-                  <div key={s.start.getTime()} className={"slot" + (sel ? " sel" : "")} onClick={() => setSelSlot(s)}>{t}</div>
-                );
-              })}
+              {/* When collapsed: show only the selected slot */}
+              {timesCollapsed && selSlot ? (
+                <div
+                  className="slot sel"
+                  onClick={() => setTimesCollapsed(false)}
+                  style={{ cursor: "pointer" }}
+                >
+                  {selSlot.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </div>
+              ) : (
+                daySlots.map((s) => {
+                  const t = s.start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                  const sel = selSlot?.start.getTime() === s.start.getTime();
+                  return (
+                    <div
+                      key={s.start.getTime()}
+                      className={"slot" + (sel ? " sel" : "")}
+                      onClick={() => { setSelSlot(s); reserveSlot(s); }}
+                    >{t}</div>
+                  );
+                })
+              )}
               {selDay && daySlots.length === 0 && (
                 <p style={{ color: "var(--muted)", fontSize: 13.5, gridColumn: "1 / -1" }}>No open slots this day.</p>
               )}
@@ -626,7 +725,7 @@ export default function BookPage() {
                 : "Please accept consent above"}
             </button>
             <div className="fine">
-              💳 Card · Bank Transfer · USSD · Secure payment · Instant confirmation
+              💳 Card · Transfer · Secure · Instant
             </div>
           </div>
         </div>

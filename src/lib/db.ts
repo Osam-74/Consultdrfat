@@ -196,9 +196,18 @@ export async function clientLeftSession(bookingId: string): Promise<void> {
  */
 export async function clientRejoinedSession(bookingId: string, isFirstJoin = false): Promise<void> {
   try {
+    // Fetch client name from booking for a personalised join message
+    let clientLabel = "Client";
+    try {
+      const bkSnap = await getDoc(doc(db, "bookings", bookingId));
+      if (bkSnap.exists()) {
+        const bkData = bkSnap.data() as { clientName?: string };
+        if (bkData.clientName) clientLabel = bkData.clientName;
+      }
+    } catch { /* fall back to "Client" */ }
     const msg = isFirstJoin
-      ? "✅ Client has joined the session."
-      : "↩️ Client has rejoined the session.";
+      ? `✅ ${clientLabel} has joined the session.`
+      : `↩️ ${clientLabel} has rejoined the session.`;
     await sendMessage(bookingId, "system", msg);
     await updateDoc(doc(db, "bookings", bookingId), { inSession: true });
   } catch { /* non-fatal */ }

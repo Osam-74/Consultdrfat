@@ -7,6 +7,7 @@ import {
   getSettings, saveSettings, getTemplates, saveTemplate, deleteTemplate,
   getExceptions, addException, deleteException, watchBookings, ensurePractitionerConfig,
   archiveBooking, watchDiscountCodes, deleteBookingPermanently, unarchiveBooking,
+  createDiscountCode, sendDiscountEmail,
 } from "@/lib/db";
 import type { DiscountCode } from "@/lib/db";
 import {
@@ -65,8 +66,14 @@ function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode,
   const isPast = d < new Date();
   const isLive = !isPast && (Date.now() - d.getTime()) > -5 * 60 * 1000 && (d.getTime() - Date.now()) < 90 * 60 * 1000;
 
+  const isDone = sessionStatus === "complete";
+  const isOverdue = isPast && b.status === "paid" && sessionStatus !== "complete" && sessionStatus !== "live";
+
   return (
-    <div className={"booking-row" + (isPast ? " brow-past" : isLive ? " brow-live" : "")}>
+    <div
+      className={"booking-row" + (isPast ? " brow-past" : isLive ? " brow-live" : "") + (isDone ? " brow-done-out" : "")}
+      style={isDone ? { opacity: 0.52, filter: "grayscale(0.35)" } : undefined}
+    >
       {/* Collapsed row */}
       <div className="booking-row-main" onClick={() => setOpen(v => !v)}>
         <div className="brow-date-badge">
@@ -105,9 +112,15 @@ function BookingCard({ b, onArchive, onPermanentDelete, onUnarchive, filterMode,
           {b.discountCode && <div className="brow-detail-line">🏷 <span>{b.discountCode} ({b.discountPercent}% off)</span></div>}
           <div className="brow-detail-line">🗓 <span>{fmtDT(d)} — {end.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span></div>
           <div className="brow-detail-actions">
-            {b.status === "paid" && !b.archived && filterMode !== "past" && (
+            {b.status === "paid" && !b.archived && filterMode !== "past" && sessionStatus !== "complete" && !(isPast && sessionStatus !== "live") && (
               <Link className="btn btn-sm btn-primary" href={`/session/?id=${b.id}&role=practitioner`}>
                 🚀 Start Session
+              </Link>
+            )}
+            {/* Rejoin live session */}
+            {b.status === "paid" && !b.archived && sessionStatus === "live" && (
+              <Link className="btn btn-sm btn-primary" href={`/session/?id=${b.id}&role=practitioner`} style={{background:"#16a34a"}}>
+                ↩ Rejoin Live
               </Link>
             )}
             {!b.archived && filterMode !== "past" && (
@@ -154,6 +167,13 @@ export default function AdminPage() {
   const [bookings, setBookings]     = useState<Booking[]>([]);
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, "none"|"idle"|"live"|"complete">>({});
   const [discountCodes, setDiscountCodes]       = useState<DiscountCode[]>([]);
+  // Manual discount generation (from discounts tab)
+  const [genDiscEmail, setGenDiscEmail]   = useState("");
+  const [genDiscName, setGenDiscName]     = useState("");
+  const [genDiscPct, setGenDiscPct]       = useState<25|50|75|100>(25);
+  const [genDiscSending, setGenDiscSending] = useState(false);
+  const [genDiscSent, setGenDiscSent]     = useState("");
+  const [genDiscError, setGenDiscError]   = useState("");
   const [saving, setSaving]         = useState(false);
   const [clearing, setClearing]     = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -621,8 +641,17 @@ export default function AdminPage() {
           <div className="stat-card" style={{background:"#E0F2F0",borderColor:"#A8DDD6",display:"flex",alignItems:"center",gap:12}}>
             <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>⏱️</div>
             <div style={{minWidth:0}}>
-              <div className="stat-val" style={{color:"var(--navy)"}}>{consultationHours}</div>
-              <div className="stat-lbl">{consultationHours === 1 ? "Consultation Hour" : "Consultation Hours"}</div>
+              <div className="stat-val" style={{color:"var(--navy)",fontSize:"clamp(18px,3.5vw,28px)",wordBreak:"keep-all",whiteSpace:"nowrap"}}>
+                {(() => {
+                  const totalMin = Math.round(consultationHours * 60);
+                  const h = Math.floor(totalMin / 60);
+                  const m = totalMin % 60;
+                  if (h === 0) return `${m}m`;
+                  if (m === 0) return `${h}h`;
+                  return `${h}h ${m}m`;
+                })()}
+              </div>
+              <div className="stat-lbl">Consultation Time</div>
             </div>
           </div>
           {/* Total Active Patients — unique clients who have made bookings */}
@@ -1119,6 +1148,82 @@ export default function AdminPage() {
 
         {/* ══ SETTINGS ══ */}
         {tab==="discounts" && (
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          {/* ── Generate new discount code for a client ── */}
+          <div className="card">
+            <div className="card-header" style={{marginBottom:14}}>
+              <div><h3>🎫 Generate Discount Code</h3><p className="card-sub">Create and send a code to any client</p></div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 180px"}}>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:4}}>Client name</label>
+                  <input
+                    type="text" value={genDiscName} onChange={e=>setGenDiscName(e.target.value)}
+                    placeholder="e.g. John Doe"
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                  />
+                </div>
+                <div style={{flex:"1 1 200px"}}>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:4}}>Client email</label>
+                  <input
+                    type="email" value={genDiscEmail} onChange={e=>setGenDiscEmail(e.target.value)}
+                    placeholder="client@example.com"
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:6}}>Discount amount</label>
+                <div style={{display:"flex",gap:6}}>
+                  {([25,50,75,100] as const).map(p => (
+                    <button key={p} onClick={()=>setGenDiscPct(p)} style={{
+                      flex:1,padding:"6px 0",borderRadius:8,border:"1.5px solid",fontSize:13,fontWeight:700,cursor:"pointer",
+                      background:genDiscPct===p?"var(--teal)":"transparent",
+                      color:genDiscPct===p?"#fff":"var(--muted)",
+                      borderColor:genDiscPct===p?"var(--teal)":"var(--line)",transition:"all .15s",
+                    }}>{p}%</button>
+                  ))}
+                </div>
+              </div>
+              {genDiscSent && <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(14,138,122,.08)",border:"1px solid rgba(14,138,122,.25)",fontSize:13,color:"var(--teal)",fontWeight:600}}>✓ Code sent: {genDiscSent}</div>}
+              {genDiscError && <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(220,38,38,.08)",border:"1px solid rgba(220,38,38,.2)",fontSize:13,color:"#dc2626"}}>{genDiscError}</div>}
+              <button
+                disabled={genDiscSending || !genDiscEmail.includes("@") || !genDiscName.trim()}
+                onClick={async () => {
+                  if (!genDiscEmail.includes("@") || !genDiscName.trim()) return;
+                  setGenDiscSending(true); setGenDiscSent(""); setGenDiscError("");
+                  try {
+                    const dc = await createDiscountCode({
+                      percent: genDiscPct,
+                      clientEmail: genDiscEmail.trim(),
+                      clientName: genDiscName.trim(),
+                      clientUid: "",
+                      bookingId: "manual",
+                    });
+                    await sendDiscountEmail({
+                      toEmail: genDiscEmail.trim(),
+                      clientName: genDiscName.trim(),
+                      code: dc.code,
+                      percent: genDiscPct,
+                      expiresAt: dc.expiresAt.toDate(),
+                    });
+                    setGenDiscSent(dc.code);
+                    setGenDiscEmail(""); setGenDiscName(""); setGenDiscPct(25);
+                  } catch(e) { setGenDiscError("Failed to generate code: " + String(e)); }
+                  setGenDiscSending(false);
+                }}
+                style={{
+                  padding:"10px 0",borderRadius:10,border:"none",fontWeight:700,fontSize:14,cursor:"pointer",
+                  background: (genDiscSending || !genDiscEmail.includes("@") || !genDiscName.trim()) ? "var(--line)" : "var(--teal)",
+                  color: (genDiscSending || !genDiscEmail.includes("@") || !genDiscName.trim()) ? "var(--muted)" : "#fff",
+                  transition:"all .15s",
+                }}
+              >{genDiscSending ? "Sending…" : `Generate ${genDiscPct}% code & send email`}</button>
+            </div>
+          </div>
+
+          {/* ── Issued discount history ── */}
           <div className="card">
             <div className="card-header" style={{marginBottom:16}}>
               <div>
@@ -1129,7 +1234,7 @@ export default function AdminPage() {
             {discountCodes.length === 0 ? (
               <div className="empty-state" style={{padding:"24px 0",textAlign:"center"}}>
                 <div style={{fontSize:28,marginBottom:6}}>🎫</div>
-                <p style={{color:"var(--muted)",fontSize:13}}>No discounts issued yet. Send one from inside a session.</p>
+                <p style={{color:"var(--muted)",fontSize:13}}>No discounts issued yet.</p>
               </div>
             ) : (
               <div style={{display:"flex",flexDirection:"column",gap:7}}>
@@ -1143,7 +1248,6 @@ export default function AdminPage() {
                       display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
                       borderRadius:10,background:"#f8fafc",border:"1px solid #e8edf3",
                     }}>
-                      {/* Percent badge */}
                       <div style={{
                         width:42,height:42,borderRadius:8,display:"flex",flexDirection:"column",
                         alignItems:"center",justifyContent:"center",flexShrink:0,
@@ -1153,7 +1257,6 @@ export default function AdminPage() {
                         <span style={{fontWeight:800,fontSize:14,lineHeight:1}}>{dc.percent}%</span>
                         <span style={{fontSize:9,fontWeight:600,opacity:.75}}>OFF</span>
                       </div>
-                      {/* Code + meta */}
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                           <span style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".05em",fontFamily:"monospace"}}>{dc.code}</span>
@@ -1171,6 +1274,7 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+          </div>  
         )}
 
         {tab==="settings" && (
