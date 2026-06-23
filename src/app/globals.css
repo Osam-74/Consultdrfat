@@ -1120,7 +1120,9 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .stage {
     position: fixed !important;
     top: var(--room-top-h, 56px) !important;
-    left: 0 !important; right: 0 !important; bottom: 0 !important;
+    left: 0 !important; right: 0 !important;
+    /* Stop ABOVE the fixed composer so the pane card bottom edge is visible */
+    bottom: calc(var(--composer-h, 72px) + 8px) !important;
     overflow: hidden !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -1140,9 +1142,8 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
         is visible. The composer (below the pane) stays full-width — untouched. */
   .pane {
     flex: 1;
-    margin: 0 15px;             /* left/right breathing room → radius shows */
-    border-radius: 16px 16px 0 0 !important;  /* top corners rounded, bottom flush */
-    border-bottom: none !important;
+    margin: 0 15px 8px;         /* left/right + 8px bottom gap above composer */
+    border-radius: 16px !important;  /* all corners rounded — bottom now visible */
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -1188,7 +1189,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 10px 17px calc(var(--composer-h, 72px) + 52px);
+    padding: 10px 17px 16px; /* stage stops above composer — no calc needed */
   }
 
   /* 9. Composer: FIXED to bottom — always above keyboard, never scrolls
