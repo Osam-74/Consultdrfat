@@ -969,20 +969,16 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
         </Link>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {/* Slim live badge */}
-          <div style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",borderRadius:20,padding:"4px 10px",border:"1px solid rgba(255,255,255,.18)"}}>
+          <div className="live-badge" style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",borderRadius:20,padding:"4px 10px",border:"1px solid rgba(255,255,255,.18)"}}>
             <span style={{width:7,height:7,borderRadius:"50%",background:"#4ade80",display:"inline-block",boxShadow:"0 0 0 2px rgba(74,222,128,.3)",animation:"pulse 1.5s infinite"}} />
             <span style={{color:"rgba(255,255,255,.85)",fontSize:11,fontWeight:600,textTransform:"capitalize"}}>{isPract ? "Practitioner" : "Client"}</span>
           </div>
-          {/* Presence indicator */}
-          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:otherOnline?"#4ade80":"rgba(255,255,255,.4)"}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"rgba(255,255,255,.25)",display:"inline-block"}} />
-            {isPract ? (clientName || "Client") : practitionerName} {otherOnline ? "online" : "offline"}
-          </div>
+          {/* Presence indicator — removed from top bar; status shown next to avatar in pane */}
         </div>
       </div>
 
       <div className="stage">
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+        <div className="stage-title-block" style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
           <h2 style={{margin:0}}>Your session</h2>
           {/* Leave / End Session — outside the box, right of heading */}
           {isPract ? (
@@ -1023,7 +1019,7 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
             </button>
           )}
         </div>
-        <p className="sub">{isPract ? "You are hosting your client." : "Your session with your practitioner."}</p>
+        <p className="sub stage-title-block" style={{marginTop:2}}>{isPract ? "You are hosting your client." : "Your session with your practitioner."}</p>
 
         <div className="pane">
           <div className="pane-h">
@@ -1044,6 +1040,23 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
                   boxShadow:otherOnline?"0 0 0 2px rgba(74,222,128,.35)":"none",
                   transition:"all .3s",
                 }} />
+              </div>
+              {/* Online/offline status label — shown right beside avatar */}
+              <div style={{
+                display:"flex",flexDirection:"column",justifyContent:"center",gap:1,
+              }}>
+                <span style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,.9)",lineHeight:1.2,whiteSpace:"nowrap",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis"}}>
+                  {isPract ? (clientName || "Client") : practitionerName}
+                </span>
+                <span style={{
+                  display:"flex",alignItems:"center",gap:4,
+                  fontSize:10.5,fontWeight:500,
+                  color:otherOnline?"#4ade80":"rgba(255,255,255,.4)",
+                  lineHeight:1,
+                }}>
+                  <span style={{width:6,height:6,borderRadius:"50%",background:otherOnline?"#4ade80":"rgba(255,255,255,.25)",display:"inline-block",flexShrink:0}} />
+                  {otherOnline ? "online" : "offline"}
+                </span>
               </div>
               {/* Mic visualizer — only shown during an active voice call */}
               {voiceLive && micOn && localStreamRef.current && (

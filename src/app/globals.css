@@ -1097,8 +1097,21 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
     position: fixed !important;
     top: 0; left: 0; right: 0;
     z-index: 100;
-    padding: 10px 12px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    overflow: hidden;
   }
+  .room-top > a { flex-shrink: 0; }
+  .room-top > div { flex-shrink: 0; }
+  .room-top .live-badge {
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+
   .room-top .tag { font-size: 10px; padding: 3px 10px; }
 
   /* 3. Stage: fills between header and bottom. Not scrollable itself.
@@ -1115,8 +1128,11 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
     flex-direction: column;
   }
   /* Stage title area (Your session / Your session with...) — add side margins */
-  .stage > .stage-title-block {
-    padding: 10px 22px 6px;
+  .stage-title-block {
+    padding: 6px 22px;
+  }
+  .stage > .stage-title-block:first-child {
+    padding-top: 10px;
   }
   .stage h2 { font-size: 18px; }
 
@@ -1135,8 +1151,8 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
 
   /* 5. Pane header */
   .pane-h {
-    padding: 10px 18px;
-    gap: 6px;
+    padding: 10px 20px;
+    gap: 8px;
     flex-shrink: 0;
     overflow: visible;
     flex-wrap: nowrap;
@@ -1172,7 +1188,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 10px 17px calc(var(--composer-h, 72px) + 32px);
+    padding: 10px 17px calc(var(--composer-h, 72px) + 52px);
   }
 
   /* 9. Composer: FIXED to bottom — always above keyboard, never scrolls
