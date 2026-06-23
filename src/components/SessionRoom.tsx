@@ -613,13 +613,15 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
       // hasn't offered an extension
       if (!isPract) {
         setTimeout(() => {
-          // Check if an extension offer has been sent — if not, complete
+          // Check if an extension offer has been sent OR client has requested one — if not, complete
           watchSession(bookingId, (s) => {
-            if (s && s.status === "live" && (!s.offer || s.offer.status !== "sent")) {
+            if (s && s.status === "live" &&
+                (!s.offer || s.offer.status !== "sent") &&
+                s.clientExtRequest !== "pending") {
               completeSession(bookingId).catch(() => {});
             }
           })();
-        }, 10_000);
+        }, 15_000); // extended to 15s to give client time to press "request more time"
       }
     }
   }, [now, session]);
@@ -825,8 +827,10 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
 
   if (!session) return <div className="room-bg"><div className="center"><p style={{ color: "#fff" }}>Connecting…</p></div></div>;
 
-  // Show redirect screen when complete
-  if (session.status === "complete") {
+  // Show redirect screen when complete — but NOT if there's an active extension flow
+  const hasActiveExtension = session.offer?.status === "sent" || session.offer?.status === "accepted" ||
+    session.clientExtRequest === "pending";
+  if (session.status === "complete" && !hasActiveExtension) {
     return (
       <div className="room-bg" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 20, textAlign: "center" }}>
         <div style={{ fontSize: 52 }}>✅</div>
@@ -1679,6 +1683,58 @@ export default function SessionRoom({ bookingId, role }: { bookingId: string; ro
               </div>
             )}
           </div>
+                    {/* ── Discount panel — floats above FAB, visible on mobile AND desktop ── */}
+          {isPract && showDiscount && (
+            <div style={{
+              position:"fixed",bottom:90,right:20,zIndex:120,
+              background:"rgba(10,28,55,0.97)",border:"1.5px solid rgba(255,255,255,.18)",
+              borderRadius:16,padding:"16px 16px 14px",minWidth:230,maxWidth:280,
+              boxShadow:"0 8px 32px rgba(0,0,0,.5)",
+            }}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <span style={{fontSize:13,fontWeight:700,color:"rgba(255,255,255,.9)"}}>🎁 Client Discount</span>
+                <button onClick={()=>setShowDiscount(false)} style={{background:"none",border:"none",color:"rgba(255,255,255,.4)",cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>
+              </div>
+              {clientName && (
+                <div style={{fontSize:11,color:"rgba(255,255,255,.55)",marginBottom:8}}>For: {clientName}</div>
+              )}
+              <div style={{display:"flex",gap:5,marginBottom:10}}>
+                {DISCOUNT_OPTIONS.map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setDiscountPct(p)}
+                    style={{
+                      flex:1,padding:"7px 0",borderRadius:8,border:"1.5px solid",
+                      fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                      background:discountPct===p?"var(--teal)":"transparent",
+                      color:discountPct===p?"#fff":"rgba(255,255,255,.65)",
+                      borderColor:discountPct===p?"var(--teal)":"rgba(255,255,255,.18)",
+                    }}
+                  >{p}%</button>
+                ))}
+              </div>
+              {discountSent && (
+                <div style={{fontSize:12,color:"#4ade80",marginBottom:8,fontWeight:600}}>
+                  ✓ Sent: {discountCode}
+                </div>
+              )}
+              <button
+                style={{
+                  width:"100%",padding:"9px 0",borderRadius:9,border:"none",
+                  background: discountSending || !clientEmail ? "rgba(255,255,255,.1)" : "var(--teal)",
+                  color: discountSending || !clientEmail ? "rgba(255,255,255,.35)" : "#fff",
+                  fontWeight:700,fontSize:13,
+                  cursor: discountSending || !clientEmail ? "not-allowed" : "pointer",
+                  fontFamily:"inherit",transition:"all .15s",
+                }}
+                onClick={sendDiscount}
+                disabled={discountSending || !clientEmail}
+              >
+                {!clientEmail ? "Waiting for client info…" : discountSending ? "Sending…" : `Send ${discountPct}% off`}
+              </button>
+            </div>
+          )}
+
           {/* Desktop dock — hidden on mobile */}
           <div className="dock">
             <span className="lbl">Controls</span>

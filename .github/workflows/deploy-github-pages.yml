@@ -1,8 +1,15 @@
 name: Deploy to GitHub Pages
 
+# Only deploy to GitHub Pages on manual trigger — NOT on every push to main.
+# The main production deploy goes to Vercel (deploy-vercel-production.yml).
+# GitHub Pages is a secondary/backup deployment only.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual GitHub Pages deploy'
+        required: false
+        default: 'Manual backup deploy'
 
 permissions:
   contents: read
@@ -35,7 +42,6 @@ jobs:
 
       - name: Build for GitHub Pages
         env:
-          # Tells next.config.mjs to add basePath=/Consultdrfat
           DEPLOY_TARGET: github
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: consultdrfat.firebaseapp.com

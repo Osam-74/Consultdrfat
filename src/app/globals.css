@@ -1076,9 +1076,10 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); 
   .room-top .tag { font-size: 10px; padding: 3px 10px; }
   .stage { padding: 16px 10px 88px; }  /* extra bottom pad for mobile FAB */
   .stage h2 { font-size: 18px; }
-  .pane-h { padding: 10px 12px; gap: 6px; overflow: hidden; }
-  .pane-h .nm { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pane-h { padding: 10px 12px; gap: 6px; overflow: visible; flex-wrap: nowrap; }
+  .pane-h .nm { font-size: 13px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pane-h .role { font-size: 10.5px; }
+  .pane-h > div:last-child { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
   .voice { padding: 14px 12px 12px; }
   .timer { font-size: 28px; }
   .orb { font-size: 24px; width: 56px; height: 56px; }

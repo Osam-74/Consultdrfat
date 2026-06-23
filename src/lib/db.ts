@@ -492,19 +492,35 @@ export async function sendReminderEmail(
 
 /* ─────────────────────── Discount Codes ─────────────────────── */
 
+export interface DiscountUsage {
+  uid: string;           // Firebase UID of user who used it
+  email: string;
+  name?: string;
+  usedAt: Timestamp;
+  bookingId: string;
+}
+
 export interface DiscountCode {
   id: string;
   code: string;           // e.g. "DRFAT-3X7K"
-  percent: number;        // 10 | 20 | 30 | 50 etc.
-  createdFor: string;     // client email
-  createdForName: string;
-  createdForUid: string;
-  bookingId: string;      // session where it was generated
-  used: boolean;
-  usedAt?: Timestamp;
+  percent: number;
+  discountType: "client" | "general"; // "client" = locked to one person; "general" = anyone
+  // Client-specific fields (discountType === "client")
+  createdFor?: string;    // client email (client type)
+  createdForName?: string;
+  createdForUid?: string;
+  // General discount fields
+  maxUses?: number;       // total uses allowed across all users (0 = unlimited)
+  maxUsesPerUser: number; // how many times a single user can use it (default 1)
+  // Usage tracking
+  used: boolean;          // true when fully exhausted (client type: used once; general: hits maxUses)
+  usedAt?: Timestamp;     // first use timestamp
   usedInBookingId?: string;
+  usedBy: DiscountUsage[]; // full usage log
+  totalUses: number;       // running count
+  bookingId: string;      // "manual" for dashboard-generated; or session bookingId
   createdAt: Timestamp;
-  expiresAt: Timestamp;   // 90 days from creation
+  expiresAt: Timestamp;
 }
 
 /** Generate a random 6-character alphanumeric discount code (no prefix) */
@@ -522,22 +538,39 @@ function makeCode(): string {
  */
 export async function createDiscountCode(opts: {
   percent: number;
-  clientEmail: string;
-  clientName: string;
-  clientUid: string;
+  discountType?: "client" | "general";
+  // client type
+  clientEmail?: string;
+  clientName?: string;
+  clientUid?: string;
+  // general type
+  maxUses?: number;        // 0 = unlimited
+  maxUsesPerUser?: number; // default 1
+  // shared
   bookingId: string;
+  expiresAt?: Date;        // custom expiry; defaults to 90 days
 }): Promise<DiscountCode> {
   const now = Timestamp.now();
-  const expires = Timestamp.fromMillis(now.toMillis() + 90 * 24 * 60 * 60 * 1000);
+  const defaultExpiry = Timestamp.fromMillis(now.toMillis() + 90 * 24 * 60 * 60 * 1000);
+  const expires = opts.expiresAt ? Timestamp.fromDate(opts.expiresAt) : defaultExpiry;
   const code = makeCode();
-  const payload = {
+  const type = opts.discountType ?? "client";
+  const payload: Omit<DiscountCode, "id"> = {
     code,
     percent: opts.percent,
-    createdFor: opts.clientEmail,
-    createdForName: opts.clientName,
-    createdForUid: opts.clientUid,
-    bookingId: opts.bookingId,
+    discountType: type,
+    ...(type === "client" ? {
+      createdFor: opts.clientEmail ?? "",
+      createdForName: opts.clientName ?? "",
+      createdForUid: opts.clientUid ?? "",
+    } : {
+      maxUses: opts.maxUses ?? 0,
+    }),
+    maxUsesPerUser: opts.maxUsesPerUser ?? 1,
     used: false,
+    usedBy: [],
+    totalUses: 0,
+    bookingId: opts.bookingId,
     createdAt: now,
     expiresAt: expires,
   };
@@ -551,7 +584,8 @@ export async function createDiscountCode(opts: {
  */
 export async function validateDiscountCode(
   code: string,
-  clientEmail: string
+  clientEmail: string,
+  clientUid?: string,
 ): Promise<DiscountCode | null> {
   const q = query(
     collection(db, "discountCodes"),
@@ -561,17 +595,56 @@ export async function validateDiscountCode(
   const snap = await getDocs(q);
   if (snap.empty) return null;
   const d = { id: snap.docs[0].id, ...snap.docs[0].data() } as DiscountCode;
-  if (d.createdFor.toLowerCase() !== clientEmail.toLowerCase()) return null;
   if (d.expiresAt.toMillis() < Date.now()) return null;
+
+  if (d.discountType === "client" || !d.discountType) {
+    // Client-specific: must match email exactly
+    if (!d.createdFor || d.createdFor.toLowerCase() !== clientEmail.toLowerCase()) return null;
+  } else {
+    // General discount: check per-user usage limit
+    const maxPerUser = d.maxUsesPerUser ?? 1;
+    const usedBy = d.usedBy ?? [];
+    const myUsages = usedBy.filter(u =>
+      (clientUid && u.uid === clientUid) ||
+      u.email.toLowerCase() === clientEmail.toLowerCase()
+    );
+    if (myUsages.length >= maxPerUser) return null; // user exhausted their quota
+    // Check total uses cap
+    const maxUses = d.maxUses ?? 0;
+    if (maxUses > 0 && d.totalUses >= maxUses) return null;
+  }
   return d;
 }
 
-/** Mark a discount code as used */
-export async function redeemDiscountCode(codeId: string, bookingId: string) {
-  await updateDoc(doc(db, "discountCodes", codeId), {
-    used: true,
+/** Mark a discount code as used (append to usedBy log; mark exhausted if limits hit) */
+export async function redeemDiscountCode(
+  codeId: string,
+  bookingId: string,
+  user?: { uid: string; email: string; name?: string }
+) {
+  const ref = doc(db, "discountCodes", codeId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const d = snap.data() as Omit<DiscountCode, "id">;
+  const usageEntry: DiscountUsage = {
+    uid: user?.uid ?? "",
+    email: user?.email ?? "",
+    name: user?.name,
     usedAt: Timestamp.now(),
-    usedInBookingId: bookingId,
+    bookingId,
+  };
+  const newUsedBy = [...(d.usedBy ?? []), usageEntry];
+  const newTotalUses = (d.totalUses ?? 0) + 1;
+  const maxUses = d.maxUses ?? 0;
+  const maxPerUser = d.maxUsesPerUser ?? 1;
+  // Exhaust if: client type (always), or general hitting total cap
+  const isExhausted =
+    d.discountType === "client" || !d.discountType ||
+    (maxUses > 0 && newTotalUses >= maxUses);
+  await updateDoc(ref, {
+    usedBy: newUsedBy,
+    totalUses: newTotalUses,
+    ...(isExhausted ? { used: true, usedAt: Timestamp.now(), usedInBookingId: bookingId } : {}),
   });
 }
 

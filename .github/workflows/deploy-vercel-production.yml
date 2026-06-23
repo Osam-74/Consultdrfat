@@ -12,6 +12,10 @@ name: Promote to Production (Vercel)
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.github/workflows/**'   # workflow changes alone don't redeploy
+      - '*.md'
+      - 'workers/**'             # worker deploys are handled by deploy-worker.yml
   workflow_dispatch:  # allow manual trigger
 
 jobs:

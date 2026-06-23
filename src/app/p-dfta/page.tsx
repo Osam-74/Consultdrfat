@@ -170,10 +170,24 @@ export default function AdminPage() {
   // Manual discount generation (from discounts tab)
   const [genDiscEmail, setGenDiscEmail]   = useState("");
   const [genDiscName, setGenDiscName]     = useState("");
-  const [genDiscPct, setGenDiscPct]       = useState<25|50|75|100>(25);
+  const [genDiscPct, setGenDiscPct]       = useState(25);
   const [genDiscSending, setGenDiscSending] = useState(false);
   const [genDiscSent, setGenDiscSent]     = useState("");
   const [genDiscError, setGenDiscError]   = useState("");
+  // Discount type toggle
+  const [discType, setDiscType]           = useState<"client"|"general">("client");
+  // Client dropdown selection
+  const [selClientDisc, setSelClientDisc] = useState("");  // clientId from bookings
+  // General discount settings
+  const [genMaxUses, setGenMaxUses]       = useState(0);   // 0 = unlimited
+  const [genMaxPerUser, setGenMaxPerUser] = useState(1);
+  // Expiry
+  const [genExpiry, setGenExpiry]         = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 90);
+    return d.toISOString().slice(0,10);
+  });
+  const [genCopied, setGenCopied]         = useState(false);
+  const [genLastCode, setGenLastCode]     = useState("");
   const [saving, setSaving]         = useState(false);
   const [clearing, setClearing]     = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -641,7 +655,7 @@ export default function AdminPage() {
           <div className="stat-card" style={{background:"#E0F2F0",borderColor:"#A8DDD6",display:"flex",alignItems:"center",gap:12}}>
             <div className="stat-icon" style={{fontSize:24,marginBottom:0,flexShrink:0}}>⏱️</div>
             <div style={{minWidth:0}}>
-              <div className="stat-val" style={{color:"var(--navy)",fontSize:"clamp(18px,3.5vw,28px)",wordBreak:"keep-all",whiteSpace:"nowrap"}}>
+              <div className="stat-val" style={{color:"var(--navy)"}}>
                 {(() => {
                   const totalMin = Math.round(consultationHours * 60);
                   const h = Math.floor(totalMin / 60);
@@ -1149,78 +1163,167 @@ export default function AdminPage() {
         {/* ══ SETTINGS ══ */}
         {tab==="discounts" && (
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
-          {/* ── Generate new discount code for a client ── */}
+
+          {/* ── Type selector ── */}
           <div className="card">
-            <div className="card-header" style={{marginBottom:14}}>
-              <div><h3>🎫 Generate Discount Code</h3><p className="card-sub">Create and send a code to any client</p></div>
+            <div className="card-header" style={{marginBottom:12}}>
+              <div><h3>🎫 Generate Discount Code</h3><p className="card-sub">Create a code for a specific client or a general code anyone can use</p></div>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                <div style={{flex:"1 1 180px"}}>
-                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:4}}>Client name</label>
-                  <input
-                    type="text" value={genDiscName} onChange={e=>setGenDiscName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}
-                  />
-                </div>
-                <div style={{flex:"1 1 200px"}}>
-                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:4}}>Client email</label>
-                  <input
-                    type="email" value={genDiscEmail} onChange={e=>setGenDiscEmail(e.target.value)}
-                    placeholder="client@example.com"
-                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}
-                  />
-                </div>
-              </div>
-              <div>
-                <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:6}}>Discount amount</label>
-                <div style={{display:"flex",gap:6}}>
-                  {([25,50,75,100] as const).map(p => (
-                    <button key={p} onClick={()=>setGenDiscPct(p)} style={{
-                      flex:1,padding:"6px 0",borderRadius:8,border:"1.5px solid",fontSize:13,fontWeight:700,cursor:"pointer",
-                      background:genDiscPct===p?"var(--teal)":"transparent",
-                      color:genDiscPct===p?"#fff":"var(--muted)",
-                      borderColor:genDiscPct===p?"var(--teal)":"var(--line)",transition:"all .15s",
-                    }}>{p}%</button>
-                  ))}
-                </div>
-              </div>
-              {genDiscSent && <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(14,138,122,.08)",border:"1px solid rgba(14,138,122,.25)",fontSize:13,color:"var(--teal)",fontWeight:600}}>✓ Code sent: {genDiscSent}</div>}
-              {genDiscError && <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(220,38,38,.08)",border:"1px solid rgba(220,38,38,.2)",fontSize:13,color:"#dc2626"}}>{genDiscError}</div>}
-              <button
-                disabled={genDiscSending || !genDiscEmail.includes("@") || !genDiscName.trim()}
-                onClick={async () => {
-                  if (!genDiscEmail.includes("@") || !genDiscName.trim()) return;
-                  setGenDiscSending(true); setGenDiscSent(""); setGenDiscError("");
-                  try {
-                    const dc = await createDiscountCode({
-                      percent: genDiscPct,
-                      clientEmail: genDiscEmail.trim(),
-                      clientName: genDiscName.trim(),
-                      clientUid: "",
-                      bookingId: "manual",
-                    });
-                    await sendDiscountEmail({
-                      toEmail: genDiscEmail.trim(),
-                      clientName: genDiscName.trim(),
-                      code: dc.code,
-                      percent: genDiscPct,
-                      expiresAt: dc.expiresAt.toDate(),
-                    });
-                    setGenDiscSent(dc.code);
-                    setGenDiscEmail(""); setGenDiscName(""); setGenDiscPct(25);
-                  } catch(e) { setGenDiscError("Failed to generate code: " + String(e)); }
-                  setGenDiscSending(false);
-                }}
-                style={{
-                  padding:"10px 0",borderRadius:10,border:"none",fontWeight:700,fontSize:14,cursor:"pointer",
-                  background: (genDiscSending || !genDiscEmail.includes("@") || !genDiscName.trim()) ? "var(--line)" : "var(--teal)",
-                  color: (genDiscSending || !genDiscEmail.includes("@") || !genDiscName.trim()) ? "var(--muted)" : "#fff",
-                  transition:"all .15s",
-                }}
-              >{genDiscSending ? "Sending…" : `Generate ${genDiscPct}% code & send email`}</button>
+            {/* Type tabs */}
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {(["client","general"] as const).map(t => (
+                <button key={t} onClick={()=>setDiscType(t)} style={{
+                  flex:1,padding:"9px 0",borderRadius:10,border:"1.5px solid",fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                  background:discType===t?"var(--teal)":"transparent",
+                  color:discType===t?"#fff":"var(--muted)",
+                  borderColor:discType===t?"var(--teal)":"var(--line)",
+                }}>
+                  {t==="client" ? "👤 Client-specific" : "🌐 General code"}
+                </button>
+              ))}
             </div>
+
+            {discType==="client" ? (
+              /* ── CLIENT-SPECIFIC FORM ── */
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Select client</label>
+                  <select
+                    value={selClientDisc}
+                    onChange={e=>{ setSelClientDisc(e.target.value); const b=bookings.find(bk=>bk.clientId===e.target.value||bk.id===e.target.value); if(b){setGenDiscName(b.clientName||"");setGenDiscEmail(b.clientEmail||"");} else {setGenDiscName("");setGenDiscEmail("");}}}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",background:"#fff",cursor:"pointer"}}
+                  >
+                    <option value="">— Choose a client —</option>
+                    {Array.from(new Map(bookings.filter(b=>b.clientEmail).map(b=>[b.clientEmail, b])).values()).map(b=>(
+                      <option key={b.id} value={b.clientId||b.id}>{b.clientName||"Unknown"} — {b.clientEmail}</option>
+                    ))}
+                  </select>
+                </div>
+                {selClientDisc && genDiscName && (
+                  <div style={{display:"flex",gap:10,padding:"10px 12px",borderRadius:8,background:"rgba(14,138,122,.06)",border:"1px solid rgba(14,138,122,.2)"}}>
+                    <div style={{width:34,height:34,borderRadius:"50%",background:"var(--teal)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,flexShrink:0}}>{genDiscName.charAt(0).toUpperCase()}</div>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13,color:"var(--navy)"}}>{genDiscName}</div>
+                      <div style={{fontSize:12,color:"var(--muted)"}}>{genDiscEmail}</div>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Discount amount</label>
+                  <div style={{display:"flex",gap:6}}>
+                    {[10,15,20,25,30,50,75,100].map(p => (
+                      <button key={p} onClick={()=>setGenDiscPct(p)} style={{
+                        flex:1,padding:"7px 0",borderRadius:8,border:"1.5px solid",fontSize:12,fontWeight:700,cursor:"pointer",
+                        background:genDiscPct===p?"var(--teal)":"transparent",
+                        color:genDiscPct===p?"#fff":"var(--muted)",
+                        borderColor:genDiscPct===p?"var(--teal)":"var(--line)",transition:"all .15s",
+                      }}>{p}%</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Expiry date</label>
+                  <input type="date" value={genExpiry} onChange={e=>setGenExpiry(e.target.value)} min={new Date().toISOString().slice(0,10)}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                {genDiscSent && (
+                  <div style={{padding:"10px 14px",borderRadius:9,background:"rgba(14,138,122,.08)",border:"1px solid rgba(14,138,122,.25)",fontSize:13,color:"var(--teal)",fontWeight:600,display:"flex",alignItems:"center",gap:8}}>
+                    ✓ Code sent to {genDiscName}: <span style={{fontFamily:"monospace",letterSpacing:".08em"}}>{genDiscSent}</span>
+                  </div>
+                )}
+                {genDiscError && <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(220,38,38,.08)",border:"1px solid rgba(220,38,38,.2)",fontSize:13,color:"#dc2626"}}>{genDiscError}</div>}
+                <button
+                  disabled={genDiscSending || !selClientDisc || !genDiscEmail.includes("@") || !genDiscName.trim()}
+                  onClick={async()=>{
+                    if(!selClientDisc||!genDiscEmail.includes("@")||!genDiscName.trim())return;
+                    setGenDiscSending(true);setGenDiscSent("");setGenDiscError("");
+                    try{
+                      const dc=await createDiscountCode({
+                        percent:genDiscPct,discountType:"client",
+                        clientEmail:genDiscEmail.trim(),clientName:genDiscName.trim(),
+                        clientUid:bookings.find(b=>b.clientId===selClientDisc||b.id===selClientDisc)?.clientId??selClientDisc,bookingId:"manual",
+                        maxUsesPerUser:1,
+                        expiresAt:new Date(genExpiry),
+                      });
+                      await sendDiscountEmail({toEmail:genDiscEmail.trim(),clientName:genDiscName.trim(),code:dc.code,percent:genDiscPct,expiresAt:dc.expiresAt.toDate()});
+                      setGenDiscSent(dc.code);
+                      setSelClientDisc("");setGenDiscName("");setGenDiscEmail("");setGenDiscPct(25);
+                    }catch(e){setGenDiscError("Failed: "+String(e));}
+                    setGenDiscSending(false);
+                  }}
+                  style={{padding:"10px 0",borderRadius:10,border:"none",fontWeight:700,fontSize:14,cursor:"pointer",
+                    background:(genDiscSending||!selClientDisc||!genDiscEmail.includes("@")||!genDiscName.trim())?"var(--line)":"var(--teal)",
+                    color:(genDiscSending||!selClientDisc||!genDiscEmail.includes("@")||!genDiscName.trim())?"var(--muted)":"#fff",transition:"all .15s"}}
+                >{genDiscSending?"Generating & sending…":`Generate ${genDiscPct}% code & send to ${genDiscName||"client"}`}</button>
+              </div>
+            ) : (
+              /* ── GENERAL CODE FORM ── */
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Discount amount</label>
+                  <div style={{display:"flex",gap:6}}>
+                    {[10,15,20,25,30,50,75,100].map(p => (
+                      <button key={p} onClick={()=>setGenDiscPct(p)} style={{
+                        flex:1,padding:"7px 0",borderRadius:8,border:"1.5px solid",fontSize:12,fontWeight:700,cursor:"pointer",
+                        background:genDiscPct===p?"var(--teal)":"transparent",
+                        color:genDiscPct===p?"#fff":"var(--muted)",
+                        borderColor:genDiscPct===p?"var(--teal)":"var(--line)",transition:"all .15s",
+                      }}>{p}%</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:10}}>
+                  <div style={{flex:1}}>
+                    <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Max total uses <span style={{fontWeight:400}}>(0 = unlimited)</span></label>
+                    <input type="number" min={0} value={genMaxUses} onChange={e=>setGenMaxUses(Number(e.target.value))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+                  </div>
+                  <div style={{flex:1}}>
+                    <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Max uses per user</label>
+                    <input type="number" min={1} max={10} value={genMaxPerUser} onChange={e=>setGenMaxPerUser(Math.max(1,Number(e.target.value)))}
+                      style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"var(--muted)",display:"block",marginBottom:5}}>Expiry date</label>
+                  <input type="date" value={genExpiry} onChange={e=>setGenExpiry(e.target.value)} min={new Date().toISOString().slice(0,10)}
+                    style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1.5px solid var(--line)",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                {genDiscSent && genLastCode && (
+                  <div style={{padding:"10px 14px",borderRadius:9,background:"rgba(14,138,122,.08)",border:"1px solid rgba(14,138,122,.25)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,color:"var(--muted)",marginBottom:2}}>Code generated</div>
+                      <span style={{fontFamily:"monospace",fontWeight:800,fontSize:16,letterSpacing:".1em",color:"var(--teal)"}}>{genLastCode}</span>
+                    </div>
+                    <button onClick={()=>{navigator.clipboard.writeText(genLastCode);setGenCopied(true);setTimeout(()=>setGenCopied(false),2000);}}
+                      style={{padding:"7px 14px",borderRadius:8,border:"1.5px solid var(--teal)",background:genCopied?"var(--teal)":"transparent",color:genCopied?"#fff":"var(--teal)",fontWeight:700,fontSize:12,cursor:"pointer",transition:"all .2s",whiteSpace:"nowrap"}}>
+                      {genCopied?"✓ Copied!":"📋 Copy"}
+                    </button>
+                  </div>
+                )}
+                {genDiscError && <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(220,38,38,.08)",border:"1px solid rgba(220,38,38,.2)",fontSize:13,color:"#dc2626"}}>{genDiscError}</div>}
+                <button
+                  disabled={genDiscSending}
+                  onClick={async()=>{
+                    setGenDiscSending(true);setGenDiscSent("");setGenDiscError("");setGenLastCode("");setGenCopied(false);
+                    try{
+                      const dc=await createDiscountCode({
+                        percent:genDiscPct,discountType:"general",
+                        bookingId:"manual",
+                        maxUses:genMaxUses,maxUsesPerUser:genMaxPerUser,
+                        expiresAt:new Date(genExpiry),
+                      });
+                      setGenLastCode(dc.code);setGenDiscSent(dc.code);
+                      // Refresh codes list
+                      import("@/lib/db").then(({watchDiscountCodes})=>watchDiscountCodes(setDiscountCodes));
+                    }catch(e){setGenDiscError("Failed: "+String(e));}
+                    setGenDiscSending(false);
+                  }}
+                  style={{padding:"10px 0",borderRadius:10,border:"none",fontWeight:700,fontSize:14,cursor:genDiscSending?"not-allowed":"pointer",
+                    background:genDiscSending?"var(--line)":"var(--teal)",color:genDiscSending?"var(--muted)":"#fff",transition:"all .15s"}}
+                >{genDiscSending?"Generating…":`Generate ${genDiscPct}% general code`}</button>
+              </div>
+            )}
           </div>
 
           {/* ── Issued discount history ── */}
@@ -1237,47 +1340,76 @@ export default function AdminPage() {
                 <p style={{color:"var(--muted)",fontSize:13}}>No discounts issued yet.</p>
               </div>
             ) : (
-              <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {discountCodes.slice().sort((a,b)=>b.createdAt.toMillis()-a.createdAt.toMillis()).map(dc => {
-                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short"});
+                  const exp = dc.expiresAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"});
                   const now_ = Date.now();
-                  const isActive = !dc.used && dc.expiresAt.toMillis() >= now_;
-                  const isExpired = !dc.used && dc.expiresAt.toMillis() < now_;
+                  const isExpired = dc.expiresAt.toMillis() < now_;
+                  const isGeneral = dc.discountType === "general";
+                  const totalUses = dc.totalUses ?? (dc.used ? 1 : 0);
+                  const maxUses = dc.maxUses ?? 0;
+                  const isExhausted = dc.used;
+                  const usedBy = dc.usedBy ?? [];
                   return (
-                    <div key={dc.id} style={{
-                      display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
-                      borderRadius:10,background:"#f8fafc",border:"1px solid #e8edf3",
-                    }}>
-                      <div style={{
-                        width:42,height:42,borderRadius:8,display:"flex",flexDirection:"column",
-                        alignItems:"center",justifyContent:"center",flexShrink:0,
-                        background: dc.used ? "#f0f0f0" : isExpired ? "#fef9ec" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
-                        color: dc.used ? "#aaa" : isExpired ? "#b45309" : "#fff",
-                      }}>
-                        <span style={{fontWeight:800,fontSize:14,lineHeight:1}}>{dc.percent}%</span>
-                        <span style={{fontSize:9,fontWeight:600,opacity:.75}}>OFF</span>
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <span style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".05em",fontFamily:"monospace"}}>{dc.code}</span>
-                          {dc.used && <span style={{fontSize:10,fontWeight:700,background:"#f0f0f0",color:"#888",borderRadius:999,padding:"1px 7px"}}>USED</span>}
-                          {isExpired && <span style={{fontSize:10,fontWeight:700,background:"#fef9ec",color:"#b45309",borderRadius:999,padding:"1px 7px"}}>EXPIRED</span>}
-                          {isActive && <span style={{fontSize:10,fontWeight:700,background:"rgba(14,138,122,.1)",color:"#0E8A7A",borderRadius:999,padding:"1px 7px"}}>ACTIVE</span>}
+                    <div key={dc.id} style={{borderRadius:12,border:"1px solid var(--line)",overflow:"hidden"}}>
+                      {/* Header row */}
+                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#f8fafc"}}>
+                        <div style={{
+                          width:44,height:44,borderRadius:9,display:"flex",flexDirection:"column",
+                          alignItems:"center",justifyContent:"center",flexShrink:0,
+                          background: isExhausted ? "#f0f0f0" : isExpired ? "#fef9ec" : isGeneral ? "linear-gradient(135deg,#1e40af,#0E8A7A)" : "linear-gradient(135deg,#0B2B4A,#0E8A7A)",
+                          color: isExhausted ? "#aaa" : isExpired ? "#b45309" : "#fff",
+                        }}>
+                          <span style={{fontWeight:800,fontSize:14,lineHeight:1}}>{dc.percent}%</span>
+                          <span style={{fontSize:9,fontWeight:600,opacity:.75}}>OFF</span>
                         </div>
-                        <div style={{fontSize:11,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                          {dc.createdForName} · exp {exp}
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                            <span style={{fontWeight:700,fontSize:13,color:"var(--navy)",letterSpacing:".06em",fontFamily:"monospace"}}>{dc.code}</span>
+                            <span style={{fontSize:10,fontWeight:700,borderRadius:999,padding:"1px 7px",
+                              background: isGeneral?"rgba(30,64,175,.1)":"rgba(14,138,122,.1)",
+                              color: isGeneral?"#1e40af":"#0E8A7A"}}>
+                              {isGeneral?"🌐 GENERAL":"👤 CLIENT"}
+                            </span>
+                            {isExhausted && <span style={{fontSize:10,fontWeight:700,background:"#f0f0f0",color:"#888",borderRadius:999,padding:"1px 7px"}}>EXHAUSTED</span>}
+                            {!isExhausted && isExpired && <span style={{fontSize:10,fontWeight:700,background:"#fef9ec",color:"#b45309",borderRadius:999,padding:"1px 7px"}}>EXPIRED</span>}
+                            {!isExhausted && !isExpired && <span style={{fontSize:10,fontWeight:700,background:"rgba(14,138,122,.1)",color:"#0E8A7A",borderRadius:999,padding:"1px 7px"}}>ACTIVE</span>}
+                          </div>
+                          <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
+                            {isGeneral
+                              ? `${totalUses}${maxUses>0?`/${maxUses}`:""} uses · ${dc.maxUsesPerUser??1}x per user · exp ${exp}`
+                              : `${dc.createdForName||dc.createdFor} · ${totalUses} use${totalUses!==1?"s":""} · exp ${exp}`}
+                          </div>
                         </div>
                       </div>
+                      {/* Usage log — collapsible if there are uses */}
+                      {usedBy.length > 0 && (
+                        <div style={{borderTop:"1px solid var(--line)",background:"#fff"}}>
+                          {usedBy.map((u,i) => (
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderBottom: i<usedBy.length-1?"1px solid #f1f5f9":"none"}}>
+                              <div style={{width:26,height:26,borderRadius:"50%",background:"var(--teal)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>
+                                {(u.name||u.email).charAt(0).toUpperCase()}
+                              </div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,fontWeight:600,color:"var(--navy)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.email}</div>
+                                <div style={{fontSize:11,color:"var(--muted)"}}>{u.email} · {u.usedAt.toDate().toLocaleDateString("en-NG",{day:"numeric",month:"short",year:"numeric"})}</div>
+                              </div>
+                              <div style={{fontSize:10,color:"var(--muted)",flexShrink:0,background:"#f1f5f9",borderRadius:6,padding:"2px 7px"}}>Used</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
           </div>
-          </div>  
+          </div>
         )}
 
         {tab==="settings" && (
+
           <div style={{display:"flex",flexDirection:"column",gap:20}}>
             {/* ── Analytics Chart ── */}
             <div className="card">
